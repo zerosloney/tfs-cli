@@ -176,24 +176,34 @@ function buildProgram() {
     .action(makeRunner(() => withExecutor((ctx) => testConnection({}, ctx)), { needsExecutor: true }));
 
   // inject
-  program
+  // 快捷 flag：每个对应一个 agent，与 -a/--agent 等效，可混用以提升可读性
+  // （例如 `inject --trae` 比 `inject -a trae` 更顺手）
+  const AGENT_FLAGS = ['opencode', 'claude', 'trae', 'codebuddy', 'kilo', 'qoder'];
+  const injectCmd = program
     .command('inject')
     .description('把 TFS 规则写入 AGENTS.md / rules/ 等项目文件')
     .option('-t, --target <dir>', '目标项目目录（默认 cwd）', process.cwd())
     .option('-a, --agent <name>', '目标 agent（可重复，例如 -a opencode -a claude；支持 all）', collectOpt, [])
     .option('-f, --force', '已存在 marker 强制覆盖')
-    .option('--dry-run', '只打印计划，不写文件')
-    .action(
-      makeRunner(
-        async (opts) =>
-          await inject({
-            target: opts.target,
-            agent: opts.agent && opts.agent.length > 0 ? opts.agent : null,
-            force: opts.force,
-            dryRun: opts.dryRun
-          })
-      )
-    );
+    .option('--dry-run', '只打印计划，不写文件');
+  for (const a of AGENT_FLAGS) {
+    injectCmd.option(`--${a}`, `等同于 -a ${a}（可与其他 --<agent> 混用）`);
+  }
+  injectCmd.action(
+    makeRunner(async (opts) => {
+      // 合并 -a/--agent 收集值 + 命中 --<agent> flag；inject() 会做去重/校验/展开
+      const agents = [
+        ...(opts.agent || []),
+        ...AGENT_FLAGS.filter((a) => opts[a] === true)
+      ];
+      return await inject({
+        target: opts.target,
+        agent: agents.length > 0 ? agents : null,
+        force: opts.force,
+        dryRun: opts.dryRun
+      });
+    })
+  );
 
   return program;
 }

@@ -136,6 +136,26 @@ test('CLI: inject 收集重复 --agent 参数', () => {
   assert.deepEqual(r.data.written.map((w) => w.agent), ['claude', 'trae']);
 });
 
+test('CLI: inject 快捷 --trae flag 等同于 -a trae', () => {
+  const { stdout, exitCode } = runCli([
+    'node', 'tfs-cli', 'inject', '--dry-run', '--target', tmpDir, '--trae'
+  ]);
+  assert.equal(exitCode, 0);
+  const r = JSON.parse(stdout);
+  assert.deepEqual(r.data.written.map((w) => w.agent), ['trae']);
+});
+
+test('CLI: inject 快捷 flag 与 -a 可混用并去重', () => {
+  // --trae + -a claude + -a trae → claude, trae（去重）
+  const { stdout, exitCode } = runCli([
+    'node', 'tfs-cli', 'inject', '--dry-run', '--target', tmpDir,
+    '--trae', '-a', 'claude', '-a', 'trae'
+  ]);
+  assert.equal(exitCode, 0);
+  const r = JSON.parse(stdout);
+  assert.deepEqual(r.data.written.map((w) => w.agent), ['claude', 'trae']);
+});
+
 test('CLI: 异步非 CliError 输出结构化 INTERNAL_ERROR', () => {
   const projectRoot = process.cwd().replace(/\\/g, '/');
   const mockScript =
