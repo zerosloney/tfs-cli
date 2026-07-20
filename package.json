@@ -1,6 +1,6 @@
 {
   "name": "@master0071/tfs-cli",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "TFS (tf.exe) 命令行包装工具，为 AI Agent 提供结构化 JSON 输出、自动签出/冲突检测、凭证管理。",
   "bin": {
     "tfs-cli": "bin/tfs-cli.js"
