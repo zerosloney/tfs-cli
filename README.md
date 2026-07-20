@@ -13,7 +13,7 @@ TFS (`tf.exe`) 命令行包装工具，专门为 **AI Agent + 人类** 协作场
 
 ```bash
 # 全局安装
-npm install -g tfs-cli
+npm install -g @master0071/tfs-cli
 
 # 或源码直跑
 git clone <repo> && cd tfs-cli && npm install
