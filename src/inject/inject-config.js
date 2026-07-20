@@ -2,7 +2,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { spawn } = require('child_process');
+const { spawn, spawnSync } = require('child_process');
 
 const DEFAULT_COLLECTION = 'ASS';
 const COLLECTION_RE = /\/tfs\/([^/?#]+)/i;
@@ -76,22 +76,19 @@ function writeCredential(targetDir, agentEntry, username, password) {
   }
 
   const pyCmd = ['python', 'py'];
-  let lastErr = '';
 
   for (const cmd of pyCmd) {
-    const child = spawn(cmd, [helper, 'set', username], {
+    const result = spawnSync(cmd, [helper, 'set', username], {
+      input: password + '\n',
+      encoding: 'utf-8',
       windowsHide: true
     });
-    child.stdin.write(password + '\n');
-    child.stdin.end();
-    const { status, stderr: err } = child;
-    lastErr = err ? err.toString() : '';
-    if (status === 0) {
+
+    if (result.status === 0) {
       console.log(`[forge] ✅ 凭证已写入系统凭证库 (user=${username})`);
       return;
     }
-    // null = 命令不存在（非 PATH 问题），直接 break
-    if (status === null) break;
+    lastErr = result.stderr || result.error?.message || '';
   }
 
   console.warn(

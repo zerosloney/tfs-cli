@@ -3,5 +3,8 @@ node_modules/
 # 本地 TFS 连接配置（含内网地址/账号，不应提交）
 forge.config.json
 
+# npm 发布认证凭证（不入库）
+.npmrc
+
 # 本地 IDE / agent 会话数据
 .zcode/

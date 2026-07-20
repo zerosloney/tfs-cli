@@ -7,7 +7,7 @@ const { initCommand } = require('../src/commands/init');
 const { VALID_AGENT_NAMES } = require('../src/inject/registry');
 
 program
-  .name('forge')
+  .name('forge-tfs')
   .description('AI Agent 工具脚手架 — 注入 TFS 技能和规则到项目')
   .version(pkg.version);
 
@@ -20,7 +20,7 @@ program
     `目标 Agent 工具 (comma-separated: ${VALID_AGENT_NAMES.join(',')} 或 all)`,
     'all'
   )
-  .option('--url <server-url>', 'TFS 服务器 URL（如 http://host:8080/tfs/ASS），可选')
+  .option('-U, --url <server-url>', 'TFS 服务器 URL（如 http://host:8080/tfs/ASS），可选')
   .option('-u, --username <name>', 'TFS 用户名（可选，传入即覆盖 tfs-config.json）')
   .option(
     '-p, --password <pwd>',

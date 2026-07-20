@@ -1,9 +1,9 @@
 {
   "name": "forge-tfs",
-  "version": "1.0.0",
+  "version": "1.0.2",
   "description": "AI Agent 工具脚手架 — 向项目注入 TFS 版本控制技能和规则，支持 OpenCode、Trae 等多 Agent 工具格式",
   "bin": {
-    "forge": "bin/forge.js"
+    "forge-tfs": "bin/forge.js"
   },
   "files": [
     "bin/",

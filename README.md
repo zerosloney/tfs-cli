@@ -6,19 +6,19 @@
 
 ```bash
 # 安装
-npm install -g
+npm install -g forge-tfs
 
 # 查看支持的 Agent 工具
-forge list-agents
+forge-tfs list-agents
 
 # 首次配置（注入所有 Agent + 写入凭证）
-forge init -d <目标项目> -a all --url http://tfs:8080/tfs/ASS -u alice -p secret
+forge-tfs init -d <目标项目> -a all -U http://tfs:8080/tfs/ASS -u alice -p secret
 
 # 已有项目追加注入
-forge init -d <目标项目> -a opencode,trae
+forge-tfs init -d <目标项目> -a opencode,trae
 
 # 仅注入技能（不碰规则和根文档）
-forge init -d <目标项目> --skill-only
+forge-tfs init -d <目标项目> --skill-only
 ```
 
 ## 注入矩阵
@@ -38,7 +38,7 @@ forge init -d <目标项目> --skill-only
 |------|------|
 | `-d, --dir <path>` | 目标项目目录（默认当前目录） |
 | `-a, --agents <list>` | 目标 Agent（`all` 或逗号分隔，如 `opencode,trae`） |
-| `--url <server-url>` | TFS 服务器 URL（如 `http://tfs:8080/tfs/ASS`），传入即覆盖配置 |
+| `-U, --url <server-url>` | TFS 服务器 URL（如 `http://tfs:8080/tfs/ASS`），传入即覆盖配置 |
 | `-u, --username <name>` | TFS 用户名，传入即覆盖配置 |
 | `-p, --password <pwd>` | TFS 密码，写入系统凭证库，不落盘 |
 | `-f, --force` | 覆盖已存在的文件 |
@@ -58,7 +58,7 @@ forge init -d <目标项目> --skill-only
 
 ```bash
 set TFS_PASSWORD=secret
-forge init -d . -u alice --url http://tfs:8080/tfs/ASS
+forge-tfs init -d . -u alice -U http://tfs:8080/tfs/ASS
 ```
 
 优先级：**命令行参数 > 环境变量**。
