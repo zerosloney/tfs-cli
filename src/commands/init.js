@@ -80,8 +80,8 @@ function initCommand(options) {
       injectRules(targetDir, entry, force);
     }
 
-    // 3. 根文档
-    if (!isSkillOnly && !isRulesOnly) {
+    // 3. 根文档（仅 hasDoc=true 的 agent）
+    if (!isSkillOnly && !isRulesOnly && entry.hasDoc !== false) {
       injectDoc(targetDir, entry, force);
     }
   }

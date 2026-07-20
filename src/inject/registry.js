@@ -9,50 +9,53 @@
  * - docSource: assets 中对应的源文档文件名
  * - hasRules:  是否使用独立的 rules 目录（true 时复制 assets/rules/ 到 rulesDir）
  * - rulesDir:  rules 目录相对路径（仅 hasRules=true 时使用）
+ * - hasDoc:    是否注入根文档（默认 true，trae/codebuddy 为 false）
  *
  * Agent 分类（按目录约定）：
  * - OpenCode 类：.opencode / .kilo / .qoder  → 根文档 AGENTS.md
  * - Claude 类：  .claude                     → 根文档 CLAUDE.md
- * - Trae 类：    .trae / .codebuddy          → 根文档 AGENTS.md，额外有 rules 目录
+ * - Trae 类：    .trae / .codebuddy          → 无根文档，仅 rules 目录
  */
 const AGENTS = {
   opencode: {
     skillDir: '.opencode/skills/tfs-tf-commands',
     docFile: 'AGENTS.md',
     docSource: 'AGENTS.md',
-    hasRules: false
+    hasRules: false,
+    hasDoc: true
   },
   kilo: {
     skillDir: '.kilo/skills/tfs-tf-commands',
     docFile: 'AGENTS.md',
     docSource: 'AGENTS.md',
-    hasRules: false
+    hasRules: false,
+    hasDoc: true
   },
   qoder: {
     skillDir: '.qoder/skills/tfs-tf-commands',
     docFile: 'AGENTS.md',
     docSource: 'AGENTS.md',
-    hasRules: false
+    hasRules: false,
+    hasDoc: true
   },
   claude: {
     skillDir: '.claude/skills/tfs-tf-commands',
     docFile: 'CLAUDE.md',
     docSource: 'CLAUDE.md',
-    hasRules: false
+    hasRules: false,
+    hasDoc: true
   },
   trae: {
     skillDir: '.trae/skills/tfs-tf-commands',
     rulesDir: '.trae/rules',
-    docFile: 'AGENTS.md',
-    docSource: 'AGENTS.md',
-    hasRules: true
+    hasRules: true,
+    hasDoc: false
   },
   codebuddy: {
     skillDir: '.codebuddy/skills/tfs-tf-commands',
     rulesDir: '.codebuddy/rules',
-    docFile: 'AGENTS.md',
-    docSource: 'AGENTS.md',
-    hasRules: true
+    hasRules: true,
+    hasDoc: false
   }
 };
 
