@@ -43,7 +43,7 @@ test('setPassword: cmdkey 失败返回 INTERNAL_ERROR', async () => {
   );
 });
 
-test('getPassword: PowerShell 脚本从 stdin 读取并解码 Unicode 密码', () => {
+test('getPassword: PowerShell -File 执行并解码 Unicode 密码', () => {
   const password = '密 码!';
   let call;
   const spawnSync = (command, args, opts) => {
@@ -57,8 +57,10 @@ test('getPassword: PowerShell 脚本从 stdin 读取并解码 Unicode 密码', (
 
   assert.equal(credentials.getPassword('alice', { spawnSync }), password);
   assert.equal(call.command, 'powershell.exe');
-  assert.deepEqual(call.args, ['-NoProfile', '-NonInteractive', '-Command', '-']);
-  assert.match(call.opts.input, /CredReadW/);
+  assert.equal(call.args[0], '-NoProfile');
+  assert.equal(call.args[1], '-NonInteractive');
+  assert.equal(call.args[2], '-File');
+  assert.match(call.args[3], /tfs-cli-cred-.*\.ps1$/);
   assert.equal(call.opts.env.TFS_CLI_CRED_TARGET, 'tfs-cli:alice');
   assert.ok(!call.args.join(' ').includes('alice'), 'target 不应进入 PowerShell 命令行');
 });

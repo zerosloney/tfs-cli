@@ -8,11 +8,15 @@
  */
 
 const { CliError, ERROR_CODES } = require('./errors');
+const fs = require('fs');
+const path = require('path');
+const os = require('os');
 
 const KEYRING_SERVICE = 'tfs-cli';
 
-const READ_CREDENTIAL_SCRIPT = String.raw`
-Add-Type -TypeDefinition @'
+// C# 类型定义：base64 编码，避免 PowerShell @'...'@ here-string 在 stdin 管道下不工作。
+// 脚本运行时解码后传给 Add-Type -TypeDefinition。
+const CSHARP_TYPE = Buffer.from(`
 using System;
 using System.Runtime.InteropServices;
 
@@ -39,7 +43,12 @@ public static class TfsCliCredentialManager {
   [DllImport("advapi32.dll")]
   public static extern void CredFree(IntPtr credential);
 }
-'@
+`.trim(), 'utf-8').toString('base64');
+
+const READ_CREDENTIAL_SCRIPT = `
+$csharpB64 = '${CSHARP_TYPE}'
+$csharp = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($csharpB64))
+Add-Type -TypeDefinition $csharp
 
 $credential = [IntPtr]::Zero
 if (-not [TfsCliCredentialManager]::CredReadW($env:TFS_CLI_CRED_TARGET, 1, 0, [ref]$credential)) {
@@ -155,18 +164,27 @@ function hasPassword(username, opts = {}) {
 function readPassword(username, spawnSyncFn) {
   const spawnSync = spawnSyncFn || require('child_process').spawnSync;
   const credentialTarget = target(username);
+  const tmpScript = path.join(os.tmpdir(), `tfs-cli-cred-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.ps1`);
 
-  // intentional-simple: 每个 CLI 进程只读取一次凭证，启动一次 PowerShell 的成本可接受；
-  // 若未来需要高频批量读取，再替换为原生 Win32 绑定。
+  // intentional-simple: 写临时 .ps1 文件执行（-File），因为 PowerShell 的
+  // -Command -（stdin）对一些语法结构（如 Add-Type 的 C# 代码）处理不稳定。
+  try {
+    fs.writeFileSync(tmpScript, READ_CREDENTIAL_SCRIPT, 'utf-8');
+  } catch (e) {
+    throw new CliError(ERROR_CODES.INTERNAL_ERROR, `无法写入临时脚本: ${e.message}`, {
+      username,
+      target: credentialTarget
+    });
+  }
+
   let result;
   try {
     result = spawnSync(
       'powershell.exe',
-      ['-NoProfile', '-NonInteractive', '-Command', '-'],
+      ['-NoProfile', '-NonInteractive', '-File', tmpScript],
       {
         windowsHide: true,
         encoding: 'utf-8',
-        input: READ_CREDENTIAL_SCRIPT,
         env: { ...process.env, TFS_CLI_CRED_TARGET: credentialTarget }
       }
     );
@@ -175,6 +193,8 @@ function readPassword(username, spawnSyncFn) {
       username,
       target: credentialTarget
     });
+  } finally {
+    try { fs.unlinkSync(tmpScript); } catch (_) { /* 清理失败不影响主流程 */ }
   }
 
   const stdout = (result.stdout || '').trim();
