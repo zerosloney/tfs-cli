@@ -1,36 +1,116 @@
 'use strict';
 
-/**
- * credentials 模块测试。
- *
- * m1 回归：deletePassword 在 wincred 不可用时回退 cmdkey，且不抛错。
- * wincred 是可选依赖，多数环境未装 → loadWincred() 返回 false → 必走 cmdkey 分支。
- * 这恰好覆盖 m1 修复点的"fall through 到 cmdkey"路径。
- *
- * 注：测试假设 Windows 平台 + cmdkey 可用（与项目 Windows-only 定位一致）。
- */
-
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
+const { EventEmitter } = require('events');
 const credentials = require('../src/credentials');
+const { CliError } = require('../src/errors');
 
-test('deletePassword: 不存在的凭证 → 走 cmdkey 回退，返回布尔不抛', () => {
-  // wincred 未装时 loadWincred 返回 false → 直接走 cmdkey /delete
-  // target 不存在 → cmdkey 返回非 0 → deletePassword 返回 false（不抛）
-  const r = credentials.deletePassword('tfs-cli-nonexistent-user-' + Date.now());
-  assert.equal(typeof r, 'boolean');
+function fakeSpawnSync(result = {}) {
+  return () => ({ status: 0, stdout: '', stderr: '', error: undefined, ...result });
+}
+
+function fakeSpawn(exitCode = 0) {
+  return () => {
+    const child = new EventEmitter();
+    child.stdout = new EventEmitter();
+    child.stderr = new EventEmitter();
+    setImmediate(() => child.emit('close', exitCode));
+    return child;
+  };
+}
+
+test('target: 拼接正确', () => {
+  assert.equal(credentials.target('alice'), 'tfs-cli:alice');
 });
 
-test('deletePassword: 空 username 抛 INVALID_ARGS', () => {
-  const { CliError } = require('../src/errors');
+test('setPassword: 通过注入的 cmdkey spawn 写入', async () => {
+  let call;
+  const spawn = (command, args, opts) => {
+    call = { command, args, opts };
+    return fakeSpawn(0)();
+  };
+
+  await credentials.setPassword('alice', 'secret', { spawn });
+  assert.equal(call.command, 'cmdkey');
+  assert.deepEqual(call.args, ['/generic:tfs-cli:alice', '/user:alice', '/pass:secret']);
+});
+
+test('setPassword: cmdkey 失败返回 INTERNAL_ERROR', async () => {
+  await assert.rejects(
+    () => credentials.setPassword('alice', 'secret', { spawn: fakeSpawn(1) }),
+    (e) => e instanceof CliError && e.code === 'INTERNAL_ERROR'
+  );
+});
+
+test('getPassword: PowerShell 脚本从 stdin 读取并解码 Unicode 密码', () => {
+  const password = '密 码!';
+  let call;
+  const spawnSync = (command, args, opts) => {
+    call = { command, args, opts };
+    return {
+      status: 0,
+      stdout: 'FOUND:' + Buffer.from(password, 'utf-8').toString('base64'),
+      stderr: ''
+    };
+  };
+
+  assert.equal(credentials.getPassword('alice', { spawnSync }), password);
+  assert.equal(call.command, 'powershell.exe');
+  assert.deepEqual(call.args, ['-NoProfile', '-NonInteractive', '-Command', '-']);
+  assert.match(call.opts.input, /CredReadW/);
+  assert.equal(call.opts.env.TFS_CLI_CRED_TARGET, 'tfs-cli:alice');
+  assert.ok(!call.args.join(' ').includes('alice'), 'target 不应进入 PowerShell 命令行');
+});
+
+test('getPassword: 凭证不存在返回 CREDENTIAL_MISSING', () => {
+  assert.throws(
+    () => credentials.getPassword('alice', {
+      spawnSync: fakeSpawnSync({ status: 2, stdout: 'NOT_FOUND' })
+    }),
+    (e) => e instanceof CliError && e.code === 'CREDENTIAL_MISSING'
+  );
+});
+
+test('getPassword: PowerShell 失败返回 INTERNAL_ERROR', () => {
+  assert.throws(
+    () => credentials.getPassword('alice', {
+      spawnSync: fakeSpawnSync({ status: 1, stderr: 'denied' })
+    }),
+    (e) => e instanceof CliError && e.code === 'INTERNAL_ERROR'
+  );
+});
+
+test('hasPassword: 使用 CredReadW 结果判断', () => {
+  assert.equal(credentials.hasPassword('alice', {
+    spawnSync: fakeSpawnSync({ stdout: 'FOUND:c2VjcmV0' })
+  }), true);
+  assert.equal(credentials.hasPassword('alice', {
+    spawnSync: fakeSpawnSync({ status: 2, stdout: 'NOT_FOUND' })
+  }), false);
+});
+
+test('hasPassword: 无法检查时不伪装成不存在', () => {
+  assert.throws(
+    () => credentials.hasPassword('alice', {
+      spawnSync: fakeSpawnSync({ status: 1, stderr: 'PowerShell unavailable' })
+    }),
+    (e) => e instanceof CliError && e.code === 'INTERNAL_ERROR'
+  );
+});
+
+test('deletePassword: 根据 cmdkey 退出码返回布尔值', () => {
+  assert.equal(credentials.deletePassword('alice', {
+    spawnSync: fakeSpawnSync({ status: 0 })
+  }), true);
+  assert.equal(credentials.deletePassword('alice', {
+    spawnSync: fakeSpawnSync({ status: 1 })
+  }), false);
+});
+
+test('credentials: 空 username 抛 INVALID_ARGS', () => {
   assert.throws(
     () => credentials.deletePassword(''),
     (e) => e instanceof CliError && e.code === 'INVALID_ARGS'
   );
-});
-
-test('hasPassword: 未装 wincred 时返回 false（不抛）', () => {
-  // wincred 多数测试环境未装；不论结果都不应抛
-  const r = credentials.hasPassword('someone');
-  assert.equal(typeof r, 'boolean');
 });

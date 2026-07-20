@@ -28,6 +28,27 @@ test('toWindows: 相对路径 ./bar 拼接到 cwd', () => {
   assert.equal(toWindows('./Bar.cs', 'C:\\Root'), 'C:\\Root\\Bar.cs');
 });
 
+test('toWindows: 相对路径默认按 process.cwd() 解析', () => {
+  const path = require('path');
+  assert.equal(
+    toWindows('src/Program.cs'),
+    path.win32.resolve(process.cwd(), 'src\\Program.cs')
+  );
+});
+
+test('toWindows: 正确解析 .. 路径段', () => {
+  assert.equal(toWindows('..\\Foo.cs', 'E:\\Demo\\Project'), 'E:\\Demo\\Foo.cs');
+});
+
+test('toWindows: 支持 UNC 和 MSYS 驱动器根目录', () => {
+  assert.equal(toWindows('\\\\server\\share\\a\\..\\Foo.cs'), '\\\\server\\share\\Foo.cs');
+  assert.equal(toWindows('/c'), 'C:\\');
+});
+
+test('toWindows: 支持 MSYS 风格 cwd', () => {
+  assert.equal(toWindows('../Foo.cs', '/e/Demo/Project'), 'E:\\Demo\\Foo.cs');
+});
+
 test('toWindows: 空输入返回空', () => {
   assert.equal(toWindows(''), '');
   assert.equal(toWindows(null), '');
@@ -39,7 +60,8 @@ test('canonicalize: 跨平台唯一标识', () => {
   assert.equal(canonicalize('c:/FOO/bar.cs'), 'c:/foo/bar.cs');
 });
 
-test('joinWindows: 拼接多段并清理分隔符', () => {
+test('joinWindows: 拼接多段并解析相对段', () => {
   assert.equal(joinWindows('C:\\Foo\\', '/Bar/', 'Baz.cs'), 'C:\\Foo\\Bar\\Baz.cs');
   assert.equal(joinWindows('a\\\\b', 'c\\\\d'), 'a\\b\\c\\d');
+  assert.equal(joinWindows('E:\\Demo\\Project', '..\\Foo.cs'), 'E:\\Demo\\Foo.cs');
 });

@@ -45,12 +45,15 @@ test('config set: 改 server 自动重推 collection', async () => {
   assert.equal(loaded.collection, 'MES');
 });
 
-test('config set: 改 username 同步 password_ref', async () => {
+test('config set: 改 username 被拒绝（防止凭证引用失效）', async () => {
   cfgMod.save(cfgMod.build({ server: 'http://h:8080/tfs/ASS', username: 'alice' }));
   const r = await cfgCmd.set('username', 'bob');
-  assert.equal(r.response.ok, true);
+  assert.equal(r.response.ok, false);
+  assert.equal(r.response.error.code, 'INVALID_ARGS');
+  assert.match(r.response.error.message, /tfs-cli init/);
+  // 配置不应被修改
   const loaded = cfgMod.load();
-  assert.equal(loaded.password_ref, 'system-keyring:tfs-cli:bob');
+  assert.equal(loaded.username, 'alice');
 });
 
 test('config set: 不可设置的 key 报错', async () => {
@@ -61,19 +64,37 @@ test('config set: 不可设置的 key 报错', async () => {
 
 // ────────── config reset ──────────
 
-test('config reset: 删除配置文件 + 调用 credentials.delete', async () => {
+test('config reset: 删除失败且凭证仍存在时保留配置', async () => {
   cfgMod.save(cfgMod.build({ server: 'http://h:8080/tfs/ASS', username: 'alice' }));
-  // mock credentials.deletePassword — 我们不真实跑
   const credMod = require('../src/credentials');
-  let deletedFor = null;
-  const orig = credMod.deletePassword;
-  credMod.deletePassword = (u) => { deletedFor = u; return true; };
+  const originalDelete = credMod.deletePassword;
+  const originalHas = credMod.hasPassword;
+  credMod.deletePassword = () => false;
+  credMod.hasPassword = () => true;
+  try {
+    const r = await cfgCmd.reset();
+    assert.equal(r.response.ok, false);
+    assert.equal(r.response.error.code, 'INTERNAL_ERROR');
+    assert.ok(cfgMod.tryLoad(), '删除凭证失败时必须保留配置');
+  } finally {
+    credMod.deletePassword = originalDelete;
+    credMod.hasPassword = originalHas;
+  }
+});
+
+test('config reset: 凭证本就不存在时仍可删除配置', async () => {
+  cfgMod.save(cfgMod.build({ server: 'http://h:8080/tfs/ASS', username: 'alice' }));
+  const credMod = require('../src/credentials');
+  const originalDelete = credMod.deletePassword;
+  const originalHas = credMod.hasPassword;
+  credMod.deletePassword = () => false;
+  credMod.hasPassword = () => false;
   try {
     const r = await cfgCmd.reset();
     assert.equal(r.response.ok, true);
-    assert.equal(deletedFor, 'alice');
     assert.equal(cfgMod.tryLoad(), null);
   } finally {
-    credMod.deletePassword = orig;
+    credMod.deletePassword = originalDelete;
+    credMod.hasPassword = originalHas;
   }
 });

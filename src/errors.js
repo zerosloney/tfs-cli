@@ -21,14 +21,27 @@ class CliError extends Error {
    * @param {string} code     见本文件 ERROR_CODES
    * @param {string} message  人类可读描述
    * @param {object} [details] 额外上下文（写入 JSON data 字段）
-   * @param {number} [exitCode] 退出码（默认 1）
+   * @param {number} [exitCode] 退出码（默认根据 code 映射）
    */
-  constructor(code, message, details = null, exitCode = 1) {
+  constructor(code, message, details = null, exitCode) {
     super(message);
     this.name = 'CliError';
     this.code = code;
     this.details = details;
-    this.exitCode = exitCode;
+    this.exitCode = exitCode !== undefined ? exitCode : _defaultExitCode(code);
+  }
+}
+
+/**
+ * 根据错误码返回默认退出码。
+ * 显式传入 exitCode 时优先于本映射。
+ */
+function _defaultExitCode(code) {
+  switch (code) {
+    case 'CONFIG_MISSING': return 3;
+    case 'TF_NOT_FOUND':   return 4;
+    case 'CONFLICT':       return 2;
+    default:               return 1;
   }
 }
 

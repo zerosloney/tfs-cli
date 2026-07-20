@@ -6,6 +6,17 @@ const { CliError, ERROR_CODES } = require('../errors');
 const { extractOwner, sameUser } = require('../executor');
 
 /**
+ * 合成当前用户身份标识：如果 config 有 domain，用 DOMAIN\username 格式。
+ * 这样 sameUser 比较时能正确区分 CONTOSO\alice 和 OTHERDOMAIN\alice。
+ */
+function currentIdentity(config) {
+  if (config.domain) {
+    return config.domain.toUpperCase() + '\\' + config.username;
+  }
+  return config.username;
+}
+
+/**
  * tfs-cli edit <path> — 编辑前自动签出 + 冲突检测。
  *
  * 退出码：
@@ -23,6 +34,8 @@ const { extractOwner, sameUser } = require('../executor');
 async function edit(opts, ctx) {
   const win = toWindows(opts.inputPath);
   if (!win) throw new CliError(ERROR_CODES.INVALID_ARGS, '缺少 path 参数');
+
+  const currentUser = currentIdentity(ctx.config);
 
   // 步骤 1: 查 status
   let statusRes = await ctx.executor.run(['status', win], { includeServer: false });
@@ -45,18 +58,18 @@ async function edit(opts, ctx) {
     // checkout 失败 → 兜底再查一次 status
     const retry = await ctx.executor.run(['status', win], { includeServer: false });
     const ownerRetry = extractOwner(retry.stdout);
-    if (ownerRetry && !sameUser(ownerRetry, ctx.config.username)) {
+    if (ownerRetry && !sameUser(ownerRetry, currentUser)) {
       return {
         response: fail('edit', ERROR_CODES.CONFLICT, `文件已被 ${ownerRetry} 签出（无法签出）`, {
           path: win,
-          details: { owner: ownerRetry, currentUser: ctx.config.username, stderr: ckRes.stderr.trim() },
+          details: { owner: ownerRetry, currentUser: currentUser, stderr: ckRes.stderr.trim() },
           meta: { tf_exit: ckRes.exitCode, duration_ms: ckRes.durationMs },
           startMs: ctx.startMs
         }),
         exitCode: 2
       };
     }
-    if (ownerRetry && sameUser(ownerRetry, ctx.config.username)) {
+    if (ownerRetry && sameUser(ownerRetry, currentUser)) {
       // 当前用户已签出，但 checkout 仍失败（工作区映射或网络问题）
       return {
         response: ok('edit', {
@@ -85,7 +98,7 @@ async function edit(opts, ctx) {
   }
 
   // 步骤 3/4: 已签出
-  if (sameUser(owner, ctx.config.username)) {
+  if (sameUser(owner, currentUser)) {
     return {
       response: ok('edit', {
         path: win,
@@ -99,7 +112,7 @@ async function edit(opts, ctx) {
   return {
     response: fail('edit', ERROR_CODES.CONFLICT, `文件已被 ${owner} 签出，无法编辑`, {
       path: win,
-      details: { owner, currentUser: ctx.config.username },
+      details: { owner, currentUser: currentUser },
       meta: { tf_exit: statusRes.exitCode, duration_ms: statusRes.durationMs },
       startMs: ctx.startMs
     }),

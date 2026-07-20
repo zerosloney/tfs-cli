@@ -89,7 +89,7 @@ const { edit } = require('../src/commands/edit');
  * 用两次 spawn 模拟：第一次 status（带 owner），第二次 checkout（不应该被调用），
  * 期待返回 CONFLICT。
  */
-function makeEditCtx({ statusStdout, checkoutStdout = '', checkoutExit = 0 }) {
+function makeEditCtx({ statusStdout, checkoutStdout = '', checkoutExit = 0, domain = '' }) {
   const calls = [];
   let i = 0;
   const spawnFn = (cmd, args) => {
@@ -106,7 +106,7 @@ function makeEditCtx({ statusStdout, checkoutStdout = '', checkoutExit = 0 }) {
     });
     return child;
   };
-  const config = { server: 'http://h:8080/tfs/ASS', username: 'alice', domain: '', collection: 'ASS' };
+  const config = { server: 'http://h:8080/tfs/ASS', username: 'alice', domain, collection: 'ASS' };
   const ctx = {
     config,
     password: 'secret',
@@ -115,7 +115,7 @@ function makeEditCtx({ statusStdout, checkoutStdout = '', checkoutExit = 0 }) {
       tfPath: 'tf.exe',
       username: 'alice',
       password: 'secret',
-      domain: '',
+      domain,
       server: 'http://h:8080/tfs/ASS',
       spawnFn
     }),
@@ -152,6 +152,18 @@ test('edit: 被他人签出 → CONFLICT, exit 2', async () => {
   assert.equal(r.response.error.code, 'CONFLICT');
   assert.equal(r.exitCode, 2);
   assert.equal(r.response.error.details.owner, 'bob');
+});
+
+test('edit: 跨域同名用户仍判定为 CONFLICT', async () => {
+  const { ctx } = makeEditCtx({
+    domain: 'CONTOSO',
+    statusStdout: '  User: OTHERDOMAIN\\alice\n'
+  });
+  const r = await edit({ inputPath: 'C:\\Foo.cs' }, ctx);
+  assert.equal(r.response.ok, false);
+  assert.equal(r.response.error.code, 'CONFLICT');
+  assert.equal(r.exitCode, 2);
+  assert.equal(r.response.error.details.currentUser, 'CONTOSO\\alice');
 });
 
 test('edit: checkout 失败但重查发现被人签出 → CONFLICT', async () => {
@@ -227,7 +239,7 @@ test('getlatest: 默认路径为 .', async () => {
   await getlatest({}, ctx);
   assert.equal(calls[0].args[1], '.');
   assert.ok(calls[0].args.includes('/recursive'));
-  assert.ok(calls[0].args.includes('/server:http://h:8080/tfs/ASS'));
+  assert.ok(!calls[0].args.some((a) => a.startsWith('/server:')), 'getlatest 不应包含 /server:');
 });
 
 test('getlatest: 指定路径转 Windows 后传入', async () => {
@@ -258,6 +270,7 @@ test('test: workspaces 成功 → reachable=true', async () => {
   assert.equal(r.response.data.reachable, true);
   // collection arg 应该是 /collection:http://h:8080/tfs/ASS
   assert.ok(calls[0].args.includes('/collection:http://h:8080/tfs/ASS'));
+  assert.ok(!calls[0].args.some((a) => a.startsWith('/server:')), 'workspaces 不应包含 /server:');
 });
 
 test('test: workspaces 失败 → AUTH_FAILED', async () => {

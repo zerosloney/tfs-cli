@@ -108,3 +108,35 @@ test('inject: --dry-run 不写文件', async () => {
   assert.equal(r.response.ok, true);
   assert.ok(!fs.existsSync(path.join(tmpDir, 'AGENTS.md')));
 });
+
+test('inject: 未知 --agent 值返回 INVALID_ARGS', async () => {
+  let caught = false;
+  try {
+    await inject({ target: tmpDir, agent: ['bogus'] });
+  } catch (e) {
+    caught = true;
+    assert.equal(e.code, 'INVALID_ARGS');
+  }
+  assert.equal(caught, true);
+});
+
+test('inject: --agent all 每个实际目标只写一次', async () => {
+  const r = await inject({ target: tmpDir, agent: ['all'] });
+  assert.equal(r.response.ok, true);
+  assert.deepEqual(
+    r.response.data.written.map((w) => w.agent),
+    ['opencode', 'claude', 'trae', 'codebuddy']
+  );
+  assert.ok(fs.existsSync(path.join(tmpDir, 'AGENTS.md')));
+  assert.ok(fs.existsSync(path.join(tmpDir, 'CLAUDE.md')));
+  assert.ok(fs.existsSync(path.join(tmpDir, '.trae', 'rules', 'tfs-command.md')));
+  assert.ok(fs.existsSync(path.join(tmpDir, '.codebuddy', 'rules', 'tfs-command.md')));
+});
+
+test('inject: --agent 重复参数去重', async () => {
+  const r = await inject({ target: tmpDir, agent: ['opencode', 'opencode', 'claude'] });
+  assert.equal(r.response.ok, true);
+  const written = r.response.data.written;
+  const opencodes = written.filter((w) => w.agent === 'opencode');
+  assert.equal(opencodes.length, 1, '重复 agent 应去重');
+});

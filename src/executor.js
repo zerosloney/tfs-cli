@@ -61,11 +61,11 @@ class TfExecutor {
    *
    * @param {string[]} tfArgs   tf.exe 的命令行参数（不含 /login /server 等）
    * @param {object} [opts]
-   * @param {boolean} [opts.includeServer]  是否附加 /server:...（默认 true）
+   * @param {boolean} [opts.includeServer]  是否附加 /server:...（默认 false — 不自动加）
    * @param {boolean} [opts.noprompt]      是否附加 /noprompt（默认 true）
    * @returns {Promise<{ok:boolean, exitCode:number|null, stdout:string, stderr:string, durationMs:number}>}
    */
-  async run(tfArgs, { includeServer = true, noprompt = true } = {}) {
+  async run(tfArgs, { includeServer = false, noprompt = true } = {}) {
     const args = [...tfArgs];
     if (includeServer && this._serverArg()) args.push(this._serverArg());
     args.push(this._loginArg());
@@ -138,7 +138,13 @@ function extractOwner(output) {
 }
 
 /**
- * 比较两个用户名是否实质相同（忽略 domain/@domain 大小写）。
+ * 比较两个用户名是否实质相同。
+ *
+ * 规则（按优先级）：
+ *   1. 两侧都有 domain（DOMAIN\user）或都有 UPN domain（user@domain.com）→ 必须比较 domain：
+ *      - 忽略大小写后 domain+local-part 都相等才视为相同
+ *   2. 一侧有 domain/UPN，另一侧无 → 降级只比较 local-part（忽略大小写）
+ *   3. 两侧都无 domain → 直接比较 local-part（忽略大小写）
  *
  * @param {string} a
  * @param {string} b
@@ -146,8 +152,34 @@ function extractOwner(output) {
  */
 function sameUser(a, b) {
   if (!a || !b) return false;
-  const norm = (s) => s.split('\\').pop().split('@')[0].toLowerCase();
-  return norm(a) === norm(b);
+  const parse = (s) => {
+    let domain = '';
+    let local = s;
+    // DOMAIN\user
+    const bs = s.indexOf('\\');
+    if (bs >= 0) {
+      domain = s.slice(0, bs).toLowerCase();
+      local = s.slice(bs + 1);
+    }
+    // user@domain.com
+    const at = local.indexOf('@');
+    if (at >= 0) {
+      const upnDomain = local.slice(at + 1).toLowerCase();
+      local = local.slice(0, at);
+      if (!domain) domain = upnDomain;
+      // 如果已有 domain（DOMAIN\user@domain），UPN domain 用于补充比较
+      // 但此时应该与另一个参的 domain 比较
+    }
+    return { domain: domain.toLowerCase(), local: local.toLowerCase() };
+  };
+  const pa = parse(a);
+  const pb = parse(b);
+  // 两侧都有 domain → 必须比较 domain
+  if (pa.domain && pb.domain) {
+    return pa.domain === pb.domain && pa.local === pb.local;
+  }
+  // 一侧有 domain，另一侧无 → 降级只比较 local-part
+  return pa.local === pb.local;
 }
 
 module.exports = { TfExecutor, extractOwner, sameUser };

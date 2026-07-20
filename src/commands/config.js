@@ -14,7 +14,8 @@ const { CliError, ERROR_CODES } = require('../errors');
  *   config set <key> <val>   修改单个字段（不修改凭证）
  *   config reset             删除 config + 凭证
  *
- * key 可选：server / username / domain / workspace / collection
+ * key 可选：server / domain / workspace / collection
+ * 修改 username 或密码请重新运行 init。
  */
 
 function show() {
@@ -44,12 +45,18 @@ function show() {
   }
 }
 
-const SETTABLE_KEYS = ['server', 'username', 'domain', 'workspace', 'collection'];
+const SETTABLE_KEYS = ['server', 'domain', 'workspace', 'collection'];
 
 function setKey(key, value) {
   const startMs = Date.now();
   try {
     if (!SETTABLE_KEYS.includes(key)) {
+      if (key === 'username') {
+        throw new CliError(
+          ERROR_CODES.INVALID_ARGS,
+          '不允许通过 config set 修改 username，否则凭证引用会失效。请使用: tfs-cli init 重新初始化（会重写配置 + 凭证）'
+        );
+      }
       throw new CliError(
         ERROR_CODES.INVALID_ARGS,
         `不可设置的字段: ${key}。可用: ${SETTABLE_KEYS.join(', ')}（修改密码请用 tfs-cli init 或 config reset）`
@@ -60,10 +67,6 @@ function setKey(key, value) {
     if (key === 'server') {
       const c = extractCollection(value);
       if (c) cfg.collection = c;
-    }
-    if (key === 'username') {
-      // 同步更新 password_ref（凭证库 target = tfs-cli:<username>）
-      cfg.password_ref = `system-keyring:tfs-cli:${value}`;
     }
     save(cfg);
     return {
@@ -90,7 +93,24 @@ function reset() {
   try {
     const cfg = tryLoad();
     if (cfg && cfg.username) {
-      credentials.deletePassword(cfg.username);
+      const deleted = credentials.deletePassword(cfg.username);
+      if (!deleted) {
+        // 凭证删除失败且凭证仍存在时，返回 INTERNAL_ERROR，保留 config
+        const stillExists = credentials.hasPassword(cfg.username);
+        if (stillExists) {
+          return {
+            response: fail('config', ERROR_CODES.INTERNAL_ERROR, '凭证删除失败，已保留配置文件和凭证', {
+              details: {
+                username: cfg.username,
+                hint: `请手动通过「控制面板 → 凭据管理器」删除 tfs-cli:${cfg.username}`
+              },
+              startMs
+            }),
+            exitCode: 1
+          };
+        }
+        // 凭证本就不存在时允许继续删除 config
+      }
     }
     // 删除 config 文件
     const fs = require('fs');

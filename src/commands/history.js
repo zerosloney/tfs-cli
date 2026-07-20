@@ -17,10 +17,12 @@ const { toWindows, canonicalize } = require('../path');
  *   --recursive, -r      递归
  *   --user <name>        按用户筛选
  *   --mine               仅当前用户
- *   --limit <N>          最多 N 条（默认 10；显式指定时即使带 --range 也生效）
+ *   --limit <N>          最多 N 条（默认：无 version range 时 10；有 range 时不设默认 limit）
  *
  * 缓存：默认开启 5 分钟 TTL，按规范化路径做 key。
  * 当 flags 改变查询形状时（--today/--since/--range/--user/--recursive）跳过缓存。
+ * 显式 --limit 查询跳过缓存（不同 limit 不共享缓存）。
+ * 缓存 key 包含规范化路径、server、username。
  *
  * 环境变量：
  *   TFS_HISTORY_TTL=<秒>     自定义 TTL（默认 300）
@@ -65,9 +67,31 @@ function todayD() {
   );
 }
 
+/**
+ * 规范化日期格式：确保两端都是 DYYYY-MM-DD 格式。
+ * 输入允许省略 D 前缀，或纯 YYYY-MM-DD。
+ * 拒绝格式不正确的值（如非日期字符串）。
+ */
+function normalizeDate(d) {
+  if (!d) return null;
+  let s = d.startsWith('D') ? d : 'D' + d;
+  // 验证格式：DYYYY-MM-DD
+  if (!/^D\d{4}-\d{2}-\d{2}$/.test(s)) return null;
+  // 验证日期有效性
+  const parts = s.slice(1).split('-').map(Number);
+  const dt = new Date(parts[0], parts[1] - 1, parts[2]);
+  if (dt.getFullYear() !== parts[0] || dt.getMonth() !== parts[1] - 1 || dt.getDate() !== parts[2]) {
+    return null;
+  }
+  return s;
+}
+
 function buildRange(from, to) {
-  const toD = to ? (to.startsWith('D') ? to : 'D' + to) : todayD();
-  const fromD = from.startsWith('D') ? from : 'D' + from;
+  const toD = to ? normalizeDate(to) : todayD();
+  const fromD = normalizeDate(from);
+  if (!fromD) throw new CliError(ERROR_CODES.INVALID_ARGS, `无效的起始日期: ${from}`);
+  if (!toD) throw new CliError(ERROR_CODES.INVALID_ARGS, `无效的结束日期: ${to}`);
+  if (fromD > toD) throw new CliError(ERROR_CODES.INVALID_ARGS, `起始日期 ${fromD} 不能晚于结束日期 ${toD}`);
   return fromD + '~' + toD;
 }
 
@@ -85,27 +109,52 @@ function buildRange(from, to) {
  */
 async function history(opts, ctx) {
   const win = opts.inputPath ? toWindows(opts.inputPath) : '.';
-  const cacheKey = canonicalize(win);
 
   // 构造 tf 参数
   const args = ['history', win, '/format:detailed'];
   if (opts.recursive) args.push('/recursive');
 
+  // 有 server 时用 /collection:URL（tf history 不支持 /server:）
+  if (ctx.config && ctx.config.server) {
+    args.push('/collection:' + ctx.config.server);
+  }
+
   let versionRange = null;
   if (opts.today) versionRange = todayD() + '~' + todayD();
   else if (opts.since) versionRange = buildRange(opts.since, null);
-  else if (opts.range) versionRange = buildRange(opts.range, '');
+  else if (opts.range) {
+    // --range 格式：Dxxx~Dyyy 或 YYYY-MM-DD~YYYY-MM-DD
+    const parts = opts.range.split('~');
+    if (parts.length !== 2) {
+      throw new CliError(ERROR_CODES.INVALID_ARGS, `--range 格式应为 Dxxx~Dyyy，收到: ${opts.range}`);
+    }
+    versionRange = buildRange(parts[0].trim(), parts[1].trim());
+  }
 
   if (versionRange) args.push('/version:' + versionRange);
 
   if (opts.mine) args.push('/user:' + ctx.config.username);
   else if (opts.user) args.push('/user:' + opts.user);
 
-  // limit：用户显式指定时一律加 /stopafter（与 /version: 范围不冲突）
-  const limit = opts.limit != null ? parseInt(String(opts.limit), 10) : null;
-  if (limit && Number.isFinite(limit)) args.push('/stopafter:' + limit);
+  // limit：显式指定时必须为正整数
+  const hasExplicitLimit = opts.limit != null && opts.limit !== '';
+  let limit = null;
+  if (hasExplicitLimit) {
+    limit = parseInt(String(opts.limit), 10);
+    if (!Number.isFinite(limit) || limit <= 0 || String(limit) !== String(opts.limit).trim()) {
+      throw new CliError(ERROR_CODES.INVALID_ARGS, `--limit 必须为正整数，收到: ${opts.limit}`);
+    }
+    args.push('/stopafter:' + limit);
+  } else if (!versionRange) {
+    // 无 version range 且未显式 limit 时默认 /stopafter:10
+    limit = 10;
+    args.push('/stopafter:10');
+  }
 
-  const queryShape = !!versionRange || !!opts.user || !!opts.mine || !!opts.recursive;
+  // 缓存 key 包含规范化路径、server、username
+  const cacheKey = canonicalize(win) + '|' + (ctx.config.server || '') + '|' + (ctx.config.username || '');
+  // 显式 limit 查询不得复用其他 limit 的缓存（直接跳过缓存）
+  const queryShape = !!versionRange || !!opts.user || !!opts.mine || !!opts.recursive || hasExplicitLimit;
   const ttl = getTtl();
   const useCache = process.env.TFS_NO_CACHE !== '1' && !queryShape;
   const refresh = process.env.TFS_HISTORY_REFRESH === '1';

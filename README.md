@@ -145,8 +145,16 @@ tfs-cli --text status
   }
   ```
 
-- 凭证：Windows 凭据管理器，target = `tfs-cli:<username>`，通过 `wincred` 包读写（可选依赖）。fallback 用 `cmdkey` 写。
-- **密码限制**：`tf.exe` 的 `/login:user,password` 参数按第一个逗号分割且不支持转义，因此密码**不能包含逗号或分号**——含此类字符的密码会在构造 `TfExecutor` 时被拒绝（`INVALID_ARGS`），避免静默鉴权失败。
+- 凭证：Windows 凭据管理器，target = `tfs-cli:<username>`，通过 `cmdkey` 写入/删除，`powershell + CredReadW` 读取（Windows 内置能力，无需额外依赖）。
+
+### Config set 说明
+
+`config set` 可修改 `server` / `domain` / `workspace` / `collection` 四项。
+**不允许修改 `username`**——修改 username 会导致凭证引用失效。如需修改 username，请使用 `tfs-cli init` 重新初始化。
+
+### 密码限制
+
+`tf.exe` 的 `/login:user,password` 参数按第一个逗号分割且不支持转义，因此密码**不能包含逗号或分号**——含此类字符的密码会在构造 `TfExecutor` 时被拒绝（`INVALID_ARGS`），避免静默鉴权失败。
 
 ## AI Agent 集成
 

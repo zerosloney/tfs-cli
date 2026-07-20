@@ -120,7 +120,7 @@ test('TfExecutor.run: includeServer=true 时附加 /server:', async () => {
       return c;
     }
   });
-  await exec.run(['status', '.']);
+  await exec.run(['status', '.'], { includeServer: true });
   assert.ok(capturedArgs.includes('/server:http://h:8080/tfs/ASS'));
 });
 
@@ -157,11 +157,37 @@ test('extractOwner: 无 owner 返回 null', () => {
   assert.equal(extractOwner('No lock here\n=========\nNothing changed'), null);
 });
 
-test('sameUser: 忽略 domain/@ 大小写', () => {
+test('sameUser: 两侧都有 domain 时必须比较 domain', () => {
+  // 相同用户 + 相同 domain
+  assert.equal(sameUser('CONTOSO\\alice', 'CONTOSO\\alice'), true);
+  // 相同用户 + 不同 domain
+  assert.equal(sameUser('CONTOSO\\alice', 'OTHERDOMAIN\\alice'), false);
+  // 大小写不敏感
+  assert.equal(sameUser('CONTOSO\\alice', 'contoso\\Alice'), true);
+});
+
+test('sameUser: 一侧有 domain 一侧无 → 降级比较 local-part', () => {
   assert.equal(sameUser('CONTOSO\\alice', 'alice'), true);
-  assert.equal(sameUser('Alice@contoso.com', 'alice'), true);
-  assert.equal(sameUser('Alice', 'alice@contoso.com'), true);
-  assert.equal(sameUser('alice', 'bob'), false);
+  assert.equal(sameUser('alice', 'CONTOSO\\alice'), true);
+  assert.equal(sameUser('CONTOSO\\alice', 'bob'), false);
+});
+
+test('sameUser: UPN domain 比较', () => {
+  // 两侧都有 UPN domain → 必须比较 domain
+  assert.equal(sameUser('alice@contoso.com', 'alice@contoso.com'), true);
+  assert.equal(sameUser('alice@contoso.com', 'alice@otherdomain.com'), false);
+  // 一侧有 UPN 一侧无 → 降级
+  assert.equal(sameUser('alice@contoso.com', 'alice'), true);
+});
+
+test('sameUser: DOMAIN\\user@domain 混合格式', () => {
+  // 两侧都有 domain → 必须比较
+  assert.equal(sameUser('CONTOSO\\alice@contoso.com', 'CONTOSO\\alice'), true);
+  assert.equal(sameUser('CONTOSO\\alice', 'OTHERDOMAIN\\alice'), false);
+});
+
+test('sameUser: 空/null 参数', () => {
   assert.equal(sameUser('', 'alice'), false);
   assert.equal(sameUser('alice', null), false);
+  assert.equal(sameUser(null, null), false);
 });

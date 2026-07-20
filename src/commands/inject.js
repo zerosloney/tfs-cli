@@ -36,6 +36,10 @@ const RULES_H1 = '# TFS 工作区管理\n\n';
 // 这些 agent 共用项目根的 AGENTS.md（自动检测时归并为 'opencode'）
 const AGENTS_MD_AGENTS = ['opencode', 'kilo', 'qoder'];
 
+// kilo/qoder 与 opencode 共用 AGENTS.md；all 只展开一次每个实际目标。
+const ALL_KNOWN_AGENTS = ['opencode', 'kilo', 'qoder', 'claude', 'trae', 'codebuddy'];
+const ALL_TARGET_AGENTS = ['opencode', 'claude', 'trae', 'codebuddy'];
+
 function readIfExists(p) {
   if (!fs.existsSync(p)) return null;
   return fs.readFileSync(p, 'utf-8');
@@ -97,11 +101,32 @@ async function inject(opts = {}) {
   const dryRun = !!opts.dryRun;
   const explicitAgent = opts.agent ? (Array.isArray(opts.agent) ? opts.agent : [opts.agent]) : null;
 
-  const agents = explicitAgent
-    ? explicitAgent
-    : detectAgents(targetDir).length > 0
+  // 校验并展开 --agent 参数
+  let agents;
+  if (explicitAgent) {
+    const raw = explicitAgent.flatMap((a) => a.split(',').map((s) => s.trim().toLowerCase())).filter(Boolean);
+    // 检查未知值
+    for (const a of raw) {
+      if (a !== 'all' && !ALL_KNOWN_AGENTS.includes(a)) {
+        throw new CliError(
+          ERROR_CODES.INVALID_ARGS,
+          `未知的 --agent 值: "${a}"。可用: ${ALL_KNOWN_AGENTS.join(', ')} 或 all`,
+          { unknown: a, known: ALL_KNOWN_AGENTS }
+        );
+      }
+    }
+    // 展开 all
+    if (raw.includes('all')) {
+      agents = ALL_TARGET_AGENTS;
+    } else {
+      // 去重
+      agents = [...new Set(raw)];
+    }
+  } else {
+    agents = detectAgents(targetDir).length > 0
       ? detectAgents(targetDir)
       : ['opencode']; // 默认
+  }
 
   const rules = readIfExists(RULES_FILE);
   if (!rules) throw new CliError(ERROR_CODES.INTERNAL_ERROR, '内置规则模板缺失');

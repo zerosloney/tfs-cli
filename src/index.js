@@ -19,7 +19,7 @@ const { history } = require('./commands/history');
 const { testConnection } = require('./commands/test-connection');
 const { inject } = require('./commands/inject');
 
-const { CliError } = require('./errors');
+const { CliError, ERROR_CODES } = require('./errors');
 
 /**
  * 把 commander action 标准化为 (opts) -> {response, exitCode}
@@ -136,7 +136,7 @@ function buildProgram() {
     .action(makeRunner(async () => cfgCmd.show()));
   configCmd
     .command('set <key> <value>')
-    .description('设置 server/username/domain/workspace/collection 之一')
+    .description('设置 server/domain/workspace/collection 之一（不可修改 username，请用 tfs-cli init）')
     .action(makeRunner((opts) => cfgCmd.set(opts.positionals[0], opts.positionals[1])));
   configCmd
     .command('reset')
@@ -180,7 +180,7 @@ function buildProgram() {
     .command('inject')
     .description('把 TFS 规则写入 AGENTS.md / rules/ 等项目文件')
     .option('-t, --target <dir>', '目标项目目录（默认 cwd）', process.cwd())
-    .option('-a, --agent <name>', '目标 agent（可重复，默认 auto-detect）')
+    .option('-a, --agent <name>', '目标 agent（可重复，例如 -a opencode -a claude；支持 all）', collectOpt, [])
     .option('-f, --force', '已存在 marker 强制覆盖')
     .option('--dry-run', '只打印计划，不写文件')
     .action(
@@ -188,7 +188,7 @@ function buildProgram() {
         async (opts) =>
           await inject({
             target: opts.target,
-            agent: opts.agent ? [opts.agent] : null,
+            agent: opts.agent && opts.agent.length > 0 ? opts.agent : null,
             force: opts.force,
             dryRun: opts.dryRun
           })
@@ -198,36 +198,53 @@ function buildProgram() {
   return program;
 }
 
-function main(argv) {
-  const program = buildProgram();
-  program.exitOverride();
+/**
+ * Commander 选项收集器：把重复的 --agent 值收集到数组。
+ */
+function collectOpt(val, memo) {
+  memo.push(val);
+  return memo;
+}
+
+async function main(argv) {
   try {
-    program.parse(argv);
+    const program = buildProgram();
+    program.exitOverride();
+    await program.parseAsync(argv);
   } catch (e) {
     const isCommander = e && e.code && typeof e.code === 'string' && e.code.startsWith('commander');
-    if (isCommander) {
-      // help/version 已由 commander 自己输出，安静退出
-      if (e.code === 'commander.helpDisplayed' || e.code === 'commander.help' || e.code === 'commander.version') {
-        process.exit(e.exitCode || 0);
-      }
-      const text = argv.includes('--text');
-      const pretty = argv.includes('--pretty');
-      process.stdout.write(
-        format(
-          {
-            ok: false,
-            action: 'cli',
-            path: null,
-            data: null,
-            error: { code: 'INVALID_ARGS', message: e.message, details: null },
-            meta: { duration_ms: 0 }
-          },
-          { text, pretty }
-        ) + '\n'
-      );
-      process.exit(e.exitCode || 1);
+    if (isCommander && (
+      e.code === 'commander.helpDisplayed' ||
+      e.code === 'commander.help' ||
+      e.code === 'commander.version'
+    )) {
+      process.exit(e.exitCode || 0);
+      return;
     }
-    throw e;
+
+    const text = argv.includes('--text');
+    const pretty = argv.includes('--pretty');
+    const response = {
+      ok: false,
+      action: 'cli',
+      path: null,
+      data: null,
+      error: isCommander
+        ? { code: ERROR_CODES.INVALID_ARGS, message: e.message, details: null }
+        : e instanceof CliError
+          ? { code: e.code, message: e.message, details: e.details }
+          : {
+              code: ERROR_CODES.INTERNAL_ERROR,
+              message: e && e.message ? e.message : '未预期的内部错误',
+              details: process.env.NODE_ENV === 'development' && e && e.stack
+                ? { stack: e.stack }
+                : null
+            },
+      meta: { duration_ms: 0 }
+    };
+
+    process.stdout.write(format(response, { text, pretty }) + '\n');
+    process.exit(isCommander ? e.exitCode || 1 : e instanceof CliError ? e.exitCode : 1);
   }
 }
 

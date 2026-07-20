@@ -126,6 +126,51 @@ test('CLI: --text 输出人类可读短句', () => {
   assert.match(stdout, /\[tfs-cli\]/);
 });
 
+test('CLI: inject 收集重复 --agent 参数', () => {
+  const { stdout, exitCode } = runCli([
+    'node', 'tfs-cli', 'inject', '--dry-run', '--target', tmpDir,
+    '--agent', 'claude', '--agent', 'trae'
+  ]);
+  assert.equal(exitCode, 0);
+  const r = JSON.parse(stdout);
+  assert.deepEqual(r.data.written.map((w) => w.agent), ['claude', 'trae']);
+});
+
+test('CLI: 异步非 CliError 输出结构化 INTERNAL_ERROR', () => {
+  const projectRoot = process.cwd().replace(/\\/g, '/');
+  const mockScript =
+    `require('${projectRoot}/src/commands/inject').inject = async () => { throw new Error('disk failure'); };\n`;
+  const { stdout, exitCode } = runCli(
+    ['node', 'tfs-cli', 'inject', '--dry-run', '--target', tmpDir],
+    mockScript
+  );
+  assert.equal(exitCode, 1);
+  const r = JSON.parse(stdout);
+  assert.equal(r.ok, false);
+  assert.equal(r.error.code, 'INTERNAL_ERROR');
+  assert.match(r.error.message, /disk failure/);
+});
+
+test('CLI: CONFIG_MISSING 使用退出码 3', () => {
+  const { stdout, exitCode } = runCli(['node', 'tfs-cli', 'config', 'show']);
+  assert.equal(exitCode, 3);
+  assert.equal(JSON.parse(stdout).error.code, 'CONFIG_MISSING');
+});
+
+test('CLI: TF_NOT_FOUND 使用退出码 4', () => {
+  cfgMod.save(cfgMod.build({ server: 'http://h:8080/tfs/ASS', username: 'alice' }));
+  const projectRoot = process.cwd().replace(/\\/g, '/');
+  const mockScript =
+    `const { CliError, ERROR_CODES } = require('${projectRoot}/src/errors');\n` +
+    `require('${projectRoot}/src/tf-detect').detect = () => { throw new CliError(ERROR_CODES.TF_NOT_FOUND, 'missing tf'); };\n`;
+  const { stdout, exitCode } = runCli(
+    ['node', 'tfs-cli', 'checkout', 'C:\\Foo.cs'],
+    mockScript
+  );
+  assert.equal(exitCode, 4);
+  assert.equal(JSON.parse(stdout).error.code, 'TF_NOT_FOUND');
+});
+
 // ────────── M1: history 不再双重 withExecutor ──────────
 
 test('CLI: history 命令不重复调用 preflight（M1 回归）', () => {
@@ -204,7 +249,7 @@ test('CLI: history --range + --limit 同时存在 → /stopafter 仍被加上（
     startMs: Date.now()
   };
   // --range 的查询形状跳过缓存，不写缓存文件；清理由 afterEach 兜底
-  await history({ inputPath: 'C:\\Foo.cs', range: '2026-01-01~2026-01-02', limit: 5 }, ctx);
+  await history({ inputPath: 'C:\\Foo.cs', range: 'D2026-01-01~D2026-01-02', limit: 5 }, ctx);
   assert.ok(capturedArgs.some((a) => a.startsWith('/stopafter:5')), '应同时含 /stopafter:5');
   assert.ok(capturedArgs.some((a) => a.startsWith('/version:')), '应含 /version:');
 });

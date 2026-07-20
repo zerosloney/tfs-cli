@@ -11,7 +11,8 @@ const { history, parseHistoryEntries } = require('../src/commands/history');
 
 const CACHE_PATH = path.join(os.homedir(), '.tfs_cli_history_cache.json');
 
-function makeCtx({ stdout = '', exitCode = 0 } = {}) {
+function makeCtx({ stdout = '', exitCode = 0, server } = {}) {
+  const srv = server || 'http://h:8080/tfs/ASS';
   const calls = [];
   const spawnFn = (tfPath, args) => {
     calls.push({ tfPath, args });
@@ -26,11 +27,11 @@ function makeCtx({ stdout = '', exitCode = 0 } = {}) {
   };
   return {
     ctx: {
-      config: { server: 'http://h:8080/tfs/ASS', username: 'alice', domain: '', collection: 'ASS' },
+      config: { server: srv, username: 'alice', domain: '', collection: 'ASS' },
       password: 's',
       tfPath: 'tf.exe',
       executor: new TfExecutor({
-        tfPath: 'tf.exe', username: 'alice', password: 's', server: 'http://h:8080/tfs/ASS', spawnFn
+        tfPath: 'tf.exe', username: 'alice', password: 's', server: srv, spawnFn
       }),
       startMs: Date.now()
     },
@@ -84,7 +85,7 @@ test('history: 第二次命中 5 分钟缓存', async () => {
   assert.equal(r1.response.meta.cache_hit, false);
   assert.equal(c1.length, 1);
 
-  // 第二次调用
+  // 第二次调用（相同 server/username → 缓存 key 一致）
   const { ctx: ctx2, calls: c2 } = makeCtx({ stdout });
   firstCalls.push(c2);
   const r2 = await history({ inputPath: 'C:\\Foo.cs' }, ctx2);
@@ -92,6 +93,78 @@ test('history: 第二次命中 5 分钟缓存', async () => {
   assert.equal(r2.response.meta.cache_hit, true);
   // 缓存命中 → 不调 tf.exe
   assert.equal(c2.length, 0);
+});
+
+test('history: 不同 server 不共享缓存', async () => {
+  const stdout = 'Changeset: 1\nUser: alice\nDate: 2026-07-07\nComment: a\n';
+  const { ctx, calls: c1 } = makeCtx({ stdout });
+  await history({ inputPath: 'C:\\Foo.cs' }, ctx);
+  // 不同 server
+  const { ctx: ctx2, calls: c2 } = makeCtx({ stdout, server: 'http://other:8080/tfs/OTHER' });
+  const r2 = await history({ inputPath: 'C:\\Foo.cs' }, ctx2);
+  assert.equal(r2.response.meta.cache_hit, false);
+  assert.equal(c2.length, 1, '不同 server 不应命中缓存');
+});
+
+test('history: 显式 --limit 跳过缓存', async () => {
+  const stdout = 'Changeset: 1\nUser: alice\nDate: 2026-07-07\nComment: a\n';
+  const { ctx, calls: c1 } = makeCtx({ stdout });
+  await history({ inputPath: 'C:\\Foo.cs', limit: 5 }, ctx);
+  // 带 limit 的查询不应写缓存；第二次同限也应不命中
+  const { ctx: ctx2, calls: c2 } = makeCtx({ stdout });
+  const r2 = await history({ inputPath: 'C:\\Foo.cs', limit: 5 }, ctx2);
+  assert.equal(r2.response.meta.cache_hit, false);
+  assert.equal(c2.length, 1, '显式 limit 查询跳过缓存');
+});
+
+test('history: 默认 limit 10（无 version range 时）', async () => {
+  const { ctx, calls } = makeCtx({ stdout: '' });
+  await history({ inputPath: 'C:\\Foo.cs' }, ctx);
+  assert.ok(calls[0].args.includes('/stopafter:10'), '默认应加 /stopafter:10');
+});
+
+test('history: --range 正确规范化两端并使用 /collection', async () => {
+  const { ctx, calls } = makeCtx({ stdout: '' });
+  await history({ inputPath: 'C:\\Foo.cs', range: '2026-01-01~2026-01-31' }, ctx);
+  assert.ok(calls[0].args.includes('/version:D2026-01-01~D2026-01-31'));
+  assert.ok(calls[0].args.includes('/collection:http://h:8080/tfs/ASS'));
+  assert.ok(!calls[0].args.some((a) => a.startsWith('/server:')));
+  assert.ok(!calls[0].args.some((a) => a.startsWith('/stopafter:')), '有 range 时不加默认 /stopafter');
+});
+
+test('history: --limit 0 拒绝', async () => {
+  await assert.rejects(
+    () => history({ inputPath: 'C:\\Foo.cs', limit: 0 }, makeCtx().ctx),
+    (e) => e.code === 'INVALID_ARGS'
+  );
+});
+
+test('history: --limit 负数拒绝', async () => {
+  await assert.rejects(
+    () => history({ inputPath: 'C:\\Foo.cs', limit: -5 }, makeCtx().ctx),
+    (e) => e.code === 'INVALID_ARGS'
+  );
+});
+
+test('history: --range 拒绝非法日期格式', async () => {
+  await assert.rejects(
+    () => history({ inputPath: 'C:\\Foo.cs', range: 'abc~def' }, makeCtx().ctx),
+    (e) => e.code === 'INVALID_ARGS'
+  );
+});
+
+test('history: --range 拒绝无效日期（如 2026-13-01）', async () => {
+  await assert.rejects(
+    () => history({ inputPath: 'C:\\Foo.cs', range: 'D2026-13-01~D2026-01-31' }, makeCtx().ctx),
+    (e) => e.code === 'INVALID_ARGS'
+  );
+});
+
+test('history: --range 拒绝起始日期晚于结束日期', async () => {
+  await assert.rejects(
+    () => history({ inputPath: 'C:\\Foo.cs', range: 'D2026-06-01~D2026-01-01' }, makeCtx().ctx),
+    (e) => e.code === 'INVALID_ARGS'
+  );
 });
 
 test('history: --today → 添加 /version:Dxxxx~Dxxxx', async () => {
