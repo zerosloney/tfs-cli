@@ -1,91 +1,167 @@
-# forge-tfs
+# tfs-cli
 
-把 **TFS 版本控制技能**（`tf.exe` 封装 + 凭证管理 + 文档）注入到 AI Agent 工具目录的 CLI 脚手架，让 OpenCode、Trae、Claude 等工具具备 TFS 工作区自动签出能力。
+TFS (`tf.exe`) 命令行包装工具，专门为 **AI Agent + 人类** 协作场景设计：
+
+- **结构化 JSON 输出**（默认）：AI 直接 `JSON.parse` 取字段
+- **自动签出 + 冲突检测**：`tfs-cli edit <path>` 一条命令搞定编辑前握手
+- **全局配置 + 凭证库管理**：密码入 Windows 凭据管理器，不落盘
+- **跨平台路径归一**：接受 `C:\foo\bar.cs` 或 Git Bash 风格 `/c/foo/bar.cs`
+
+> 替代旧版 `forge-tfs`（v1.0.2 已弃用）。新代码全部用这套。
+
+## 安装
+
+```bash
+# 全局安装
+npm install -g tfs-cli
+
+# 或源码直跑
+git clone <repo> && cd tfs-cli && npm install
+node bin/tfs-cli.js --help
+```
+
+> Windows only：`tf.exe` 仅在 Windows 平台存在。
 
 ## 快速开始
 
 ```bash
-# 安装
-npm install -g forge-tfs
+# 1. 初始化全局配置（写入 ~/.config/tfs-cli/config.json + 凭证库）
+tfs-cli init -U http://tfs:8080/tfs/ASS -u alice
+# 之后会提示输入密码（输入不可见——直接粘贴亦可）
 
-# 查看支持的 Agent 工具
-forge-tfs list-agents
+# 或全非交互（适合自动化）
+TFS_PASSWORD=secret tfs-cli init -U http://tfs:8080/tfs/ASS -u alice
 
-# 首次配置（注入所有 Agent + 写入凭证）
-forge-tfs init -d <目标项目> -a all -U http://tfs:8080/tfs/ASS -u alice -p secret
+# 2. 测试连接（init 后必跑）
+tfs-cli test
 
-# 已有项目追加注入
-forge-tfs init -d <目标项目> -a opencode,trae
+# 3. 注入 AI Agent 规则（写到项目 AGENTS.md / .trae/rules/...）
+cd /path/to/your/project
+tfs-cli inject
 
-# 仅注入技能（不碰规则和根文档）
-forge-tfs init -d <目标项目> --skill-only
+# 4. AI 编辑文件前必须先 edit
+tfs-cli edit src/Program.cs
+# exit 0 → 可以编辑；exit 2 → 被他人签出，停止编辑
 ```
 
-## 注入矩阵
+## 命令清单
 
-| Agent | 根文档 | 技能目录 | rules 目录 |
-|-------|--------|---------|-----------|
-| opencode | AGENTS.md | .opencode/skills/tfs-tf-commands | — |
-| kilo | AGENTS.md | .kilo/skills/tfs-tf-commands | — |
-| qoder | AGENTS.md | .qoder/skills/tfs-tf-commands | — |
-| claude | CLAUDE.md | .claude/skills/tfs-tf-commands | — |
-| trae | — | .trae/skills/tfs-tf-commands | .trae/rules |
-| codebuddy | — | .codebuddy/skills/tfs-tf-commands | .codebuddy/rules |
-
-## 命令行参数
-
-| 参数 | 说明 |
+| 命令 | 用途 |
 |------|------|
-| `-d, --dir <path>` | 目标项目目录（默认当前目录） |
-| `-a, --agents <list>` | 目标 Agent（`all` 或逗号分隔，如 `opencode,trae`） |
-| `-U, --url <server-url>` | TFS 服务器 URL（如 `http://tfs:8080/tfs/ASS`），传入即覆盖配置 |
-| `-u, --username <name>` | TFS 用户名，传入即覆盖配置 |
-| `-p, --password <pwd>` | TFS 密码，写入系统凭证库，不落盘 |
-| `-f, --force` | 覆盖已存在的文件 |
-| `--skill-only` | 仅注入技能目录 |
-| `--rules-only` | 仅注入 rules 目录（仅 trae/codebuddy 生效） |
-| `--agents-md-only` | 仅注入根文档 |
+| `tfs-cli init [-U URL] [-u USER] [-p PWD]` | 初始化配置 + 凭证库 |
+| `tfs-cli config show \| set <key> <val> \| reset` | 配置管理 |
+| `tfs-cli checkout <path>` | 签出文件 |
+| `tfs-cli undo <path>` | 撤销签出 |
+| `tfs-cli edit <path>` | **编辑前自动签出 + 冲突检测** |
+| `tfs-cli add <path>` | 加入源代码管理（递归） |
+| `tfs-cli getlatest [path]` | 获取最新版本 |
+| `tfs-cli status [path]` | 待定更改 |
+| `tfs-cli diff [path]` | unified diff（人类/AI 都可直接读） |
+| `tfs-cli history [path] [flags]` | 历史记录（带 5 分钟缓存） |
+| `tfs-cli test` | 测试连接 |
+| `tfs-cli inject [--target DIR]` | 写入 AI Agent 规则到项目 |
 
-### 凭证安全
+`history` flags：`--today` / `--since <YYYY-MM-DD>` / `--range Dxxx~Dxxx` / `--user <name>` / `--mine` / `--limit <N>` / `-r` `--recursive`
 
-**密码永不落盘**。`-p` 传入的密码通过 `cred_helper.py` 写入 Windows 凭据管理器，`tfs-config.json` 只存占位符引用：
+## 输出格式
 
+**所有命令 stdout 都是 JSON**——AI 直接解析，无需正则匹配文本。
+
+成功响应：
 ```json
-"password_ref": "system-keyring:tfs-tf-commands:<username>"
+{
+  "ok": true,
+  "action": "checkout",
+  "path": "C:\\Projects\\MyApp\\Program.cs",
+  "data": { "status": "checked_out" },
+  "error": null,
+  "meta": { "tf_exit": 0, "duration_ms": 235 }
+}
 ```
 
-为避免密码泄露进 shell 历史，推荐用环境变量：
+失败响应：
+```json
+{
+  "ok": false,
+  "action": "edit",
+  "path": "C:\\Projects\\MyApp\\Program.cs",
+  "data": null,
+  "error": {
+    "code": "CONFLICT",
+    "message": "文件已被 charlie 签出，无法编辑",
+    "details": { "owner": "charlie", "currentUser": "alice" }
+  },
+  "meta": { "tf_exit": 0, "duration_ms": 187 }
+}
+```
+
+错误码（解析 `error.code` 字段）：
+
+| code | 含义 |
+|------|------|
+| `AUTH_FAILED` | 凭证错误 / 服务器不可达 |
+| `PATH_NOT_IN_WORKSPACE` | 路径不在 TFS 工作区映射 |
+| `CONFLICT` | 文件被他人签出（仅 `edit` 命令 exit 2） |
+| `TF_NOT_FOUND` | tf.exe 未安装 |
+| `CONFIG_MISSING` | 需要先 `tfs-cli init` |
+| `CREDENTIAL_MISSING` | 凭证库里没有该用户密码 |
+| `INVALID_ARGS` | 命令行参数缺失或非法 |
+
+加 `--text` flag 切换人类可读模式（管道脚本/手动排查时用）：
 
 ```bash
-set TFS_PASSWORD=secret
-forge-tfs init -d . -u alice -U http://tfs:8080/tfs/ASS
+tfs-cli --text status
+# → [tfs-cli] ✓ status: . (0 changes)
 ```
 
-优先级：**命令行参数 > 环境变量**。
+## 退出码
 
-## 注入产物
+| code | 含义 |
+|------|------|
+| 0 | 成功 |
+| 1 | 通用错误 |
+| 2 | 文件被他人签出（仅 `edit`） |
+| 3 | 配置缺失 |
+| 4 | tf.exe 未找到 |
 
-每个 Agent 注入后得到：
+## 配置文件 & 凭证
 
-```
-<目标项目>/
-├── AGENTS.md                   # opencode/kilo/qoder（根文档，含签出规则）
-├── CLAUDE.md                   # claude 专用
-├── .trae/rules/                # 仅 trae/codebuddy
-│   └── tfs-command.md
-└── .<agent>/skills/tfs-tf-commands/
-    ├── SKILL.md
-    ├── scripts/
-    │   ├── tf_helper.sh        # 签出/历史/状态封装
-    │   ├── cred_helper.py      # 凭证库读写（Windows）
-    │   └── tf_*.py             # tf.exe 调用封装
-    ├── references/
-    │   ├── checkout-ref.md
-    │   ├── history-ref.md
-    │   └── status-ref.md
-    └── assets/
-        └── tfs-config.json     # 从 example 复制，已脱敏（server=""）
-```
+- 配置：`~/.config/tfs-cli/config.json`（按 schema_v1）
+
+  ```json
+  {
+    "version": 1,
+    "server": "http://host:8080/tfs/ASS",
+    "username": "alice",
+    "domain": "",
+    "workspace": "",
+    "collection": "ASS",
+    "password_ref": "system-keyring:tfs-cli:alice"
+  }
+  ```
+
+- 凭证：Windows 凭据管理器，target = `tfs-cli:<username>`，通过 `wincred` 包读写（可选依赖）。fallback 用 `cmdkey` 写。
+
+## AI Agent 集成
+
+`tfs-cli inject` 会把规则片段写入项目：
+
+| 项目文件 | 适用 |
+|---------|------|
+| `AGENTS.md` | opencode / kilo / qoder |
+| `CLAUDE.md` | claude-code |
+| `.trae/rules/tfs-command.md` | trae |
+| `.codebuddy/rules/tfs-command.md` | codebuddy |
+
+注入逻辑：
+- 文件不存在 → 创建
+- 已存在但无 marker → 追加（marker = `<!-- tfs-cli:rules:start/end -->`）
+- 已存在 marker → 替换 marker 间内容（强制覆盖加 `--force`）
+
+注入后的 AGENTS.md 规则片段告诉 AI：
+
+> **编辑任何源码文件前必须先 `tfs-cli edit <path>`**。  
+> 检查返回的 `ok` 字段；如果是 `false` 且 `error.code == "CONFLICT"`，立即停止编辑并报告签出者。
 
 ## 开发
 
@@ -93,8 +169,8 @@ forge-tfs init -d . -u alice -U http://tfs:8080/tfs/ASS
 # 跑测试
 npm test
 
-# 添加新 Agent 支持
-# 编辑 src/inject/registry.js 的 AGENTS 表，加一行即可
+# 设计：依赖 tf.exe 而非重新实现
+# 我们的价值在于：把 tf.exe 的输出转化为稳定 JSON + 凭证/路径处理 + 错误码抽象
 ```
 
 ## License

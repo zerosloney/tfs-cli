@@ -1,0 +1,269 @@
+'use strict';
+
+const { test } = require('node:test');
+const assert = require('node:assert/strict');
+const { EventEmitter } = require('events');
+const { TfExecutor } = require('../src/executor');
+
+function makeSpawn({ stdout = '', stderr = '', exitCode = 0 } = {}) {
+  const calls = [];
+  const spawnFn = (cmd, args) => {
+    calls.push({ cmd, args });
+    const child = new EventEmitter();
+    child.stdout = new EventEmitter();
+    child.stderr = new EventEmitter();
+    setImmediate(() => {
+      if (stdout) child.stdout.emit('data', Buffer.from(stdout, 'utf-8'));
+      if (stderr) child.stderr.emit('data', Buffer.from(stderr, 'utf-8'));
+      child.emit('close', exitCode);
+    });
+    return child;
+  };
+  return { spawnFn, calls };
+}
+
+function makeCtx({ stdout = '', stderr = '', exitCode = 0, server = 'http://h:8080/tfs/ASS' } = {}) {
+  const { spawnFn, calls } = makeSpawn({ stdout, stderr, exitCode });
+  const config = { server, username: 'alice', domain: '', collection: 'ASS' };
+  return {
+    ctx: {
+      config,
+      password: 'secret',
+      tfPath: 'tf.exe',
+      executor: new TfExecutor({
+        tfPath: 'tf.exe',
+        username: config.username,
+        password: 'secret',
+        domain: config.domain,
+        server: config.server,
+        spawnFn
+      }),
+      startMs: Date.now()
+    },
+    calls
+  };
+}
+
+// ────────── checkout ──────────
+
+test('checkout: 成功', async () => {
+  const { checkout } = require('../src/commands/checkout');
+  const { ctx, calls } = makeCtx({ stdout: 'OK', exitCode: 0 });
+  const r = await checkout({ inputPath: 'C:\\Foo\\Bar.cs' }, ctx);
+  assert.equal(r.response.ok, true);
+  assert.equal(r.exitCode, 0);
+  assert.deepEqual(calls[0].args.slice(0, 3), ['checkout', 'C:\\Foo\\Bar.cs', '/login:alice,secret']);
+  assert.ok(!calls[0].args.includes('/server:'), 'checkout 不应包含 /server:');
+});
+
+test('checkout: tf 失败 → ok=false', async () => {
+  const { checkout } = require('../src/commands/checkout');
+  const { ctx } = makeCtx({ stderr: 'unable to lock', exitCode: 1 });
+  const r = await checkout({ inputPath: 'C:\\Bar.cs' }, ctx);
+  assert.equal(r.response.ok, false);
+  assert.equal(r.exitCode, 1);
+});
+
+test('checkout: MSYS 路径自动转 Windows', async () => {
+  const { checkout } = require('../src/commands/checkout');
+  const { ctx, calls } = makeCtx();
+  await checkout({ inputPath: '/c/Foo/Bar.cs' }, ctx);
+  assert.equal(calls[0].args[1], 'C:\\Foo\\Bar.cs');
+});
+
+// ────────── undo ──────────
+
+test('undo: 调用 tf undo', async () => {
+  const { undo } = require('../src/commands/undo');
+  const { ctx, calls } = makeCtx();
+  await undo({ inputPath: 'C:\\Bar.cs' }, ctx);
+  assert.equal(calls[0].args[0], 'undo');
+  assert.equal(calls[0].args[1], 'C:\\Bar.cs');
+});
+
+// ────────── edit (核心：冲突检测) ──────────
+
+const { edit } = require('../src/commands/edit');
+
+/**
+ * 用两次 spawn 模拟：第一次 status（带 owner），第二次 checkout（不应该被调用），
+ * 期待返回 CONFLICT。
+ */
+function makeEditCtx({ statusStdout, checkoutStdout = '', checkoutExit = 0 }) {
+  const calls = [];
+  let i = 0;
+  const spawnFn = (cmd, args) => {
+    calls.push({ cmd, args });
+    const stdout = i === 0 ? statusStdout : checkoutStdout;
+    const exitCode = i === 0 ? 0 : checkoutExit;
+    i++;
+    const child = new EventEmitter();
+    child.stdout = new EventEmitter();
+    child.stderr = new EventEmitter();
+    setImmediate(() => {
+      if (stdout) child.stdout.emit('data', Buffer.from(stdout, 'utf-8'));
+      child.emit('close', exitCode);
+    });
+    return child;
+  };
+  const config = { server: 'http://h:8080/tfs/ASS', username: 'alice', domain: '', collection: 'ASS' };
+  const ctx = {
+    config,
+    password: 'secret',
+    tfPath: 'tf.exe',
+    executor: new TfExecutor({
+      tfPath: 'tf.exe',
+      username: 'alice',
+      password: 'secret',
+      domain: '',
+      server: 'http://h:8080/tfs/ASS',
+      spawnFn
+    }),
+    startMs: Date.now()
+  };
+  return { ctx, calls };
+}
+
+test('edit: 文件未被签出 → 自动 checkout', async () => {
+  const { ctx, calls } = makeEditCtx({ statusStdout: '' });
+  const r = await edit({ inputPath: 'C:\\Foo.cs' }, ctx);
+  assert.equal(r.response.ok, true);
+  assert.equal(r.exitCode, 0);
+  assert.equal(r.response.data.justCheckedOut, true);
+  assert.equal(calls[1].args[0], 'checkout');
+});
+
+test('edit: 文件已被本用户签出 → alreadyCheckedOut=true，不调 checkout', async () => {
+  const { ctx, calls } = makeEditCtx({
+    statusStdout: '  File: C:\\Foo.cs\n  Change: edit\n  User: alice\n'
+  });
+  const r = await edit({ inputPath: 'C:\\Foo.cs' }, ctx);
+  assert.equal(r.response.ok, true);
+  assert.equal(r.response.data.alreadyCheckedOut, true);
+  assert.equal(calls.length, 1, '不应触发 checkout');
+});
+
+test('edit: 被他人签出 → CONFLICT, exit 2', async () => {
+  const { ctx } = makeEditCtx({
+    statusStdout: '  File: C:\\Foo.cs\n  Change: edit\n  User: bob\n'
+  });
+  const r = await edit({ inputPath: 'C:\\Foo.cs' }, ctx);
+  assert.equal(r.response.ok, false);
+  assert.equal(r.response.error.code, 'CONFLICT');
+  assert.equal(r.exitCode, 2);
+  assert.equal(r.response.error.details.owner, 'bob');
+});
+
+test('edit: checkout 失败但重查发现被人签出 → CONFLICT', async () => {
+  // 调用序：status(空) → checkout(失败) → status retry(charlie)
+  const calls = [];
+  let i = 0;
+  const statuses = ['', '', '  User: charlie\n'];
+  const spawnFn = (tfPath, args) => {
+    calls.push({ tfPath, args });
+    const stdout = statuses[i] || '';
+    const isCheckout = args[0] === 'checkout';
+    const exitCode = isCheckout ? 1 : 0;
+    i++;
+    const child = new EventEmitter();
+    child.stdout = new EventEmitter();
+    child.stderr = new EventEmitter();
+    setImmediate(() => {
+      if (stdout) child.stdout.emit('data', Buffer.from(stdout, 'utf-8'));
+      if (isCheckout) child.stderr.emit('data', Buffer.from('cannot lock', 'utf-8'));
+      child.emit('close', exitCode);
+    });
+    return child;
+  };
+  const ctx = {
+    config: { server: 'http://h', username: 'alice', domain: '', collection: 'ASS' },
+    password: 's',
+    tfPath: 'tf.exe',
+    executor: new TfExecutor({
+      tfPath: 'tf.exe', username: 'alice', password: 's', spawnFn
+    }),
+    startMs: Date.now()
+  };
+  const r = await edit({ inputPath: 'C:\\Foo.cs' }, ctx);
+  assert.equal(r.response.ok, false);
+  assert.equal(r.response.error.code, 'CONFLICT');
+  assert.equal(r.exitCode, 2);
+  assert.equal(r.response.error.details.owner, 'charlie');
+});
+
+// ────────── status (parsing) ──────────
+
+test('status: 解析 + 加 2 个空格分隔的列为 entry', async () => {
+  const { status } = require('../src/commands/status');
+  const sample =
+    '$/MyWorkspace:\n' +
+    'C:\\Projects\\Foo.cs  edit  alice\n' +
+    'C:\\Projects\\New.cs  add   \n' +
+    '====\n' +
+    'No changes\n';
+  const { ctx } = makeCtx({ stdout: sample });
+  const r = await status({ inputPath: '.' }, ctx);
+  assert.equal(r.response.ok, true);
+  assert.equal(r.response.data.pending.length, 2);
+  assert.equal(r.response.data.pending[0].file, 'C:\\Projects\\Foo.cs');
+  assert.equal(r.response.data.pending[0].owner, 'alice');
+  assert.equal(r.response.data.pending[0].change, 'edit');
+});
+
+test('status: 无 pending 改动 → count=0, ok=true', async () => {
+  const { status } = require('../src/commands/status');
+  const { ctx } = makeCtx({ stdout: 'There are no pending changes.\n=========\n' });
+  const r = await status({ inputPath: '.' }, ctx);
+  assert.equal(r.response.ok, true);
+  assert.equal(r.response.data.count, 0);
+  assert.equal(r.response.data.pending.length, 0);
+});
+
+// ────────── getlatest ──────────
+
+test('getlatest: 默认路径为 .', async () => {
+  const { getlatest } = require('../src/commands/getlatest');
+  const { ctx, calls } = makeCtx();
+  await getlatest({}, ctx);
+  assert.equal(calls[0].args[1], '.');
+  assert.ok(calls[0].args.includes('/recursive'));
+  assert.ok(calls[0].args.includes('/server:http://h:8080/tfs/ASS'));
+});
+
+test('getlatest: 指定路径转 Windows 后传入', async () => {
+  const { getlatest } = require('../src/commands/getlatest');
+  const { ctx, calls } = makeCtx();
+  await getlatest({ inputPath: '/c/Projects' }, ctx);
+  assert.equal(calls[0].args[1], 'C:\\Projects');
+});
+
+// ────────── diff ──────────
+
+test('diff: 调用 /format:unified', async () => {
+  const { diff } = require('../src/commands/diff');
+  const { ctx, calls } = makeCtx({ stdout: '--- a/foo.cs\n+++ b/foo.cs\n@@ -1 +1 @@\n-x\n+y\n' });
+  const r = await diff({}, ctx);
+  assert.equal(r.response.ok, true);
+  assert.match(r.response.data.unified, /--- a\/foo\.cs/);
+  assert.ok(calls[0].args.includes('/format:unified'));
+});
+
+// ────────── test connection ──────────
+
+test('test: workspaces 成功 → reachable=true', async () => {
+  const { testConnection } = require('../src/commands/test-connection');
+  const { ctx, calls } = makeCtx({ stdout: 'Workspace1  alice  COMPUTER\nWorkspace2  bob    COMPUTER\n' });
+  const r = await testConnection({}, ctx);
+  assert.equal(r.response.ok, true);
+  assert.equal(r.response.data.reachable, true);
+  // collection arg 应该是 /collection:http://h:8080/tfs/ASS
+  assert.ok(calls[0].args.includes('/collection:http://h:8080/tfs/ASS'));
+});
+
+test('test: workspaces 失败 → AUTH_FAILED', async () => {
+  const { testConnection } = require('../src/commands/test-connection');
+  const { ctx } = makeCtx({ stderr: 'TF30063: unauthorized', exitCode: 1 });
+  const r = await testConnection({}, ctx);
+  assert.equal(r.response.ok, false);
+  assert.equal(r.response.error.code, 'AUTH_FAILED');
+});

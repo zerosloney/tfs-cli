@@ -1,28 +1,30 @@
 {
-  "name": "forge-tfs",
-  "version": "1.0.2",
-  "description": "AI Agent 工具脚手架 — 向项目注入 TFS 版本控制技能和规则，支持 OpenCode、Trae 等多 Agent 工具格式",
+  "name": "tfs-cli",
+  "version": "1.0.0",
+  "description": "TFS (tf.exe) 命令行包装工具，为 AI Agent 提供结构化 JSON 输出、自动签出/冲突检测、凭证管理。",
   "bin": {
-    "forge-tfs": "bin/forge.js"
+    "tfs-cli": "bin/tfs-cli.js"
   },
   "files": [
     "bin/",
-    "src/"
+    "src/",
+    "assets/"
   ],
   "scripts": {
-    "forge": "node bin/forge.js",
-    "test": "node --test"
+    "tfs-cli": "node bin/tfs-cli.js",
+    "test": "node --test test/*.test.js"
   },
   "keywords": [
     "tfs",
     "tfvc",
+    "tf.exe",
     "ai-agent",
+    "cli",
+    "json",
     "opencode",
     "trae",
     "codebuddy",
-    "claude-code",
-    "kilo-cli",
-    "qoder"
+    "claude-code"
   ],
   "license": "MIT",
   "engines": {
@@ -30,5 +32,8 @@
   },
   "dependencies": {
     "commander": "^12.0.0"
+  },
+  "optionalDependencies": {
+    "wincred": "^1.1.0"
   }
 }

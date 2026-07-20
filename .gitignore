@@ -1,7 +1,12 @@
 node_modules/
 
 # 本地 TFS 连接配置（含内网地址/账号，不应提交）
-forge.config.json
+tfs-config.json
+.config/
+
+# 测试时可能生成的临时文件
+test-out.txt
+.tfs_cli_history_cache.json
 
 # npm 发布认证凭证（不入库）
 .npmrc
