@@ -178,7 +178,7 @@ function buildProgram() {
   // inject
   // 快捷 flag：每个对应一个 agent，与 -a/--agent 等效，可混用以提升可读性
   // （例如 `inject --trae` 比 `inject -a trae` 更顺手）
-  const AGENT_FLAGS = ['opencode', 'claude', 'trae', 'codebuddy', 'kilo', 'qoder'];
+  const AGENT_FLAGS = ['opencode', 'claude', 'trae', 'codebuddy', 'kilo', 'qoder', 'zcode', 'omp', 'qwen', 'gemini', 'cline', 'cursor'];
   const injectCmd = program
     .command('inject')
     .description('把 TFS 规则写入 AGENTS.md / rules/ 等项目文件')

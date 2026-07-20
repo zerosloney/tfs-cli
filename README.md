@@ -63,13 +63,17 @@ tfs-cli inject --trae --claude  # 指定 agent
 
 ## AI Agent 集成
 
-`tfs-cli inject` 把规则写入项目（`--trae` `--claude` `--opencode` `--codebuddy` `--kilo` `--qoder` 或 `-a all`）：
+`tfs-cli inject` 把规则写入项目（`--trae` `--claude` `--opencode` `--codebuddy` `--kilo` `--qoder` `--zcode` `--omp` `--qwen` `--gemini` `--cline` `--cursor` 或 `-a all`）：
 
 | 文件 | 适用 |
 |------|------|
-| `AGENTS.md` | opencode / kilo / qoder |
+| `AGENTS.md` | opencode / kilo / qoder / zcode / omp |
 | `CLAUDE.md` | claude-code |
+| `QWEN.md` | qwen |
+| `GEMINI.md` | gemini |
+| `.clinerules` | cline |
 | `.trae/rules/tfs-command.md` | trae |
 | `.codebuddy/rules/tfs-command.md` | codebuddy |
+| `.cursor/rules/tfs-command.mdc` | cursor |
 
 注入逻辑：不存在→创建，有 marker→替换，无 marker→追加（`--force` 强制覆盖）。

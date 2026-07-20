@@ -13,15 +13,15 @@ const { CliError, ERROR_CODES } = require('../errors');
  *      - 不存在 → 创建并写入 RULES_SNIPPET + 头/尾
  *      - 存在但无 marker → 追加 RULES_SNIPPET
  *      - 有 marker → 替换 marker 之间的内容（--force 时强制）
- *   2. .trae/rules/tfs-command.md（如 .trae/ 已存在）
- *      - 不存在 → 创建（写入完整 RULES_FILE）
+ *   2. 独立文件（CLAUDE.md / QWEN.md / GEMINI.md / .clinerules）
+ *      - 同上 marker 逻辑
+ *   3. 独立目录规则文件（.trae/rules/tfs-command.md / .codebuddy/rules/tfs-command.md / .cursor/rules/tfs-command.mdc）
+ *      - 不存在 → 创建（写入完整 RULES_FILE + H1）
  *      - 存在 → 整文件替换
- *   3. .codebuddy/rules/tfs-command.md（如 .codebuddy/ 已存在）
- *   4. CLAUDE.md（仅 --agent claude 时）
  *
  * 参数：
  *   --target <dir>   目标项目目录（默认 cwd）
- *   --agent <name>   opencode|claude|trae|codebuddy|all（默认 all：自动检测存在的目录）
+ *   --agent <name>   opencode|claude|trae|codebuddy|kilo|qoder|zcode|omp|qwen|gemini|cline|cursor|all
  *   --force          即使未带 --force 也强制覆盖已有 marker 内容
  *   --dry-run        只打印计划，不写文件
  */
@@ -33,12 +33,18 @@ const MARKER_END = '<!-- tfs-cli:rules:end -->';
 const RULES_FILE = path.join(__dirname, '..', '..', 'assets', 'RULES.md');
 const RULES_H1 = '# TFS 工作区管理\n\n';
 
-// 这些 agent 共用项目根的 AGENTS.md（自动检测时归并为 'opencode'）
-const AGENTS_MD_AGENTS = ['opencode', 'kilo', 'qoder'];
+// AGENTS.md 共享组（opencode/kilo/qoder/zcode/omp 共用同一文件，自动检测时归并为 'opencode'）
+const AGENTS_MD_AGENTS = ['opencode', 'kilo', 'qoder', 'zcode', 'omp'];
 
-// kilo/qoder 与 opencode 共用 AGENTS.md；all 只展开一次每个实际目标。
-const ALL_KNOWN_AGENTS = ['opencode', 'kilo', 'qoder', 'claude', 'trae', 'codebuddy'];
-const ALL_TARGET_AGENTS = ['opencode', 'claude', 'trae', 'codebuddy'];
+// 独立文件 agent（每个写自己的专属文件，使用 marker 替换逻辑）
+const FILE_AGENTS = ['claude', 'qwen', 'gemini', 'cline'];
+
+// 独立目录规则文件 agent（整文件写入，不共用 marker）
+const DIR_RULE_AGENTS = ['trae', 'codebuddy', 'cursor'];
+
+// all 展开时每个实际目标只展开一次
+const ALL_KNOWN_AGENTS = [...AGENTS_MD_AGENTS, ...FILE_AGENTS, ...DIR_RULE_AGENTS];
+const ALL_TARGET_AGENTS = ['opencode', ...FILE_AGENTS, ...DIR_RULE_AGENTS];
 
 function readIfExists(p) {
   if (!fs.existsSync(p)) return null;
@@ -80,7 +86,7 @@ function escapeRe(s) {
 
 function detectAgents(targetDir) {
   const found = new Set();
-  // AGENTS.md 系列 agent（kilo/qoder/opencode）共用同一文件，归并为 'opencode'
+  // AGENTS.md 系列 agent（kilo/qoder/opencode/zcode/omp）共用同一文件，归并为 'opencode'
   const hasAgentsMd =
     fs.existsSync(path.join(targetDir, 'AGENTS.md')) ||
     AGENTS_MD_AGENTS.some((a) => fs.existsSync(path.join(targetDir, '.' + a)));
@@ -88,6 +94,10 @@ function detectAgents(targetDir) {
   if (fs.existsSync(path.join(targetDir, '.trae'))) found.add('trae');
   if (fs.existsSync(path.join(targetDir, '.codebuddy'))) found.add('codebuddy');
   if (fs.existsSync(path.join(targetDir, '.claude'))) found.add('claude');
+  if (fs.existsSync(path.join(targetDir, '.qwen'))) found.add('qwen');
+  if (fs.existsSync(path.join(targetDir, '.gemini'))) found.add('gemini');
+  if (fs.existsSync(path.join(targetDir, '.cline'))) found.add('cline');
+  if (fs.existsSync(path.join(targetDir, '.cursor'))) found.add('cursor');
   return Array.from(found);
 }
 
@@ -138,32 +148,42 @@ async function inject(opts = {}) {
   for (const a of agents) {
     let target;
     let body;
-    if (a === 'claude') {
-      target = path.join(targetDir, 'CLAUDE.md');
-      const original = readIfExists(target);
-      const r = applyMarker(original, rules, force);
-      body = r.body;
-      plan.push({ agent: a, target, mode: r.mode });
-    } else if (AGENTS_MD_AGENTS.includes(a)) {
+    let mode;
+
+    if (AGENTS_MD_AGENTS.includes(a)) {
+      // AGENTS.md 共享组（marker 替换）
       target = path.join(targetDir, 'AGENTS.md');
       const original = readIfExists(target);
       const r = applyMarker(original, rules, force);
       body = r.body;
-      plan.push({ agent: a, target, mode: r.mode });
+      mode = r.mode;
+    } else if (FILE_AGENTS.includes(a)) {
+      // 独立文件（marker 替换）
+      const fileNames = { claude: 'CLAUDE.md', qwen: 'QWEN.md', gemini: 'GEMINI.md', cline: '.clinerules' };
+      target = path.join(targetDir, fileNames[a]);
+      const original = readIfExists(target);
+      const r = applyMarker(original, rules, force);
+      body = r.body;
+      mode = r.mode;
     } else if (a === 'trae') {
       target = path.join(targetDir, '.trae', 'rules', 'tfs-command.md');
       body = RULES_H1 + rules;
-      plan.push({ agent: a, target, mode: fs.existsSync(target) ? 'overwrite' : 'create' });
+      mode = fs.existsSync(target) ? 'overwrite' : 'create';
     } else if (a === 'codebuddy') {
       target = path.join(targetDir, '.codebuddy', 'rules', 'tfs-command.md');
       body = RULES_H1 + rules;
-      plan.push({ agent: a, target, mode: fs.existsSync(target) ? 'overwrite' : 'create' });
+      mode = fs.existsSync(target) ? 'overwrite' : 'create';
+    } else if (a === 'cursor') {
+      target = path.join(targetDir, '.cursor', 'rules', 'tfs-command.mdc');
+      body = RULES_H1 + rules;
+      mode = fs.existsSync(target) ? 'overwrite' : 'create';
     } else {
       continue;
     }
 
     if (!dryRun) writeFileEnsuringDir(target, body);
-    written.push({ agent: a, target, mode: dryRun ? `${plan[plan.length - 1].mode} (dry-run)` : plan[plan.length - 1].mode });
+    plan.push({ agent: a, target, mode });
+    written.push({ agent: a, target, mode: dryRun ? `${mode} (dry-run)` : mode });
   }
 
   return {

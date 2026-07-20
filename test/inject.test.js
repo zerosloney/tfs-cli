@@ -85,8 +85,8 @@ test('inject: claude 写 CLAUDE.md 而非 AGENTS.md', async () => {
   assert.ok(!fs.existsSync(path.join(tmpDir, 'AGENTS.md')));
 });
 
-test('inject: --agent kilo/qoder 显式传入时写 AGENTS.md', async () => {
-  for (const a of ['kilo', 'qoder']) {
+test('inject: --agent kilo/qoder/zcode/omp 显式传入时写 AGENTS.md', async () => {
+  for (const a of ['kilo', 'qoder', 'zcode', 'omp']) {
     const sub = fs.mkdtempSync(path.join(os.tmpdir(), 'tfs-cli-agent-'));
     await inject({ target: sub, agent: [a] });
     assert.ok(fs.existsSync(path.join(sub, 'AGENTS.md')), `${a} 应写 AGENTS.md`);
@@ -94,12 +94,51 @@ test('inject: --agent kilo/qoder 显式传入时写 AGENTS.md', async () => {
 });
 
 test('inject: 自动检测 .kilo / .qoder / .opencode → 归并 opencode 写 AGENTS.md', async () => {
-  for (const dir of ['.kilo', '.qoder', '.opencode']) {
+  for (const dir of ['.kilo', '.qoder', '.opencode', '.zcode', '.omp']) {
     const sub = fs.mkdtempSync(path.join(os.tmpdir(), 'tfs-cli-detect-'));
     fs.mkdirSync(path.join(sub, dir));
     const r = await inject({ target: sub });
     assert.equal(r.response.ok, true);
     assert.ok(fs.existsSync(path.join(sub, 'AGENTS.md')), `检测到 ${dir} 应写 AGENTS.md`);
+  }
+});
+
+test('inject: qwen 写 QWEN.md', async () => {
+  await inject({ target: tmpDir, agent: ['qwen'] });
+  assert.ok(fs.existsSync(path.join(tmpDir, 'QWEN.md')));
+  const content = fs.readFileSync(path.join(tmpDir, 'QWEN.md'), 'utf-8');
+  assert.ok(content.includes(MARKER_START));
+  assert.ok(content.includes('TFS'));
+});
+
+test('inject: gemini 写 GEMINI.md', async () => {
+  await inject({ target: tmpDir, agent: ['gemini'] });
+  assert.ok(fs.existsSync(path.join(tmpDir, 'GEMINI.md')));
+});
+
+test('inject: cline 写 .clinerules', async () => {
+  await inject({ target: tmpDir, agent: ['cline'] });
+  assert.ok(fs.existsSync(path.join(tmpDir, '.clinerules')));
+});
+
+test('inject: cursor 写 .cursor/rules/tfs-command.mdc', async () => {
+  await inject({ target: tmpDir, agent: ['cursor'] });
+  const target = path.join(tmpDir, '.cursor', 'rules', 'tfs-command.mdc');
+  assert.ok(fs.existsSync(target));
+  const content = fs.readFileSync(target, 'utf-8');
+  assert.ok(content.startsWith('# TFS 工作区管理'), 'cursor 独立文件应以 H1 开头');
+  assert.ok(content.includes('## TFS 工作区规则'), '应含 H2 主体');
+});
+
+test('inject: 自动检测 .qwen / .gemini / .cline / .cursor', async () => {
+  const agents = ['.qwen', '.gemini', '.cline', '.cursor'];
+  const expectedFiles = ['QWEN.md', 'GEMINI.md', '.clinerules', '.cursor/rules/tfs-command.mdc'];
+  for (let i = 0; i < agents.length; i++) {
+    const sub = fs.mkdtempSync(path.join(os.tmpdir(), 'tfs-cli-detect-'));
+    fs.mkdirSync(path.join(sub, agents[i]));
+    const r = await inject({ target: sub });
+    assert.equal(r.response.ok, true);
+    assert.ok(fs.existsSync(path.join(sub, expectedFiles[i])), `检测到 ${agents[i]} 应写 ${expectedFiles[i]}`);
   }
 });
 
@@ -125,12 +164,16 @@ test('inject: --agent all 每个实际目标只写一次', async () => {
   assert.equal(r.response.ok, true);
   assert.deepEqual(
     r.response.data.written.map((w) => w.agent),
-    ['opencode', 'claude', 'trae', 'codebuddy']
+    ['opencode', 'claude', 'qwen', 'gemini', 'cline', 'trae', 'codebuddy', 'cursor']
   );
   assert.ok(fs.existsSync(path.join(tmpDir, 'AGENTS.md')));
   assert.ok(fs.existsSync(path.join(tmpDir, 'CLAUDE.md')));
+  assert.ok(fs.existsSync(path.join(tmpDir, 'QWEN.md')));
+  assert.ok(fs.existsSync(path.join(tmpDir, 'GEMINI.md')));
+  assert.ok(fs.existsSync(path.join(tmpDir, '.clinerules')));
   assert.ok(fs.existsSync(path.join(tmpDir, '.trae', 'rules', 'tfs-command.md')));
   assert.ok(fs.existsSync(path.join(tmpDir, '.codebuddy', 'rules', 'tfs-command.md')));
+  assert.ok(fs.existsSync(path.join(tmpDir, '.cursor', 'rules', 'tfs-command.mdc')));
 });
 
 test('inject: --agent 重复参数去重', async () => {
