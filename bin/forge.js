@@ -46,8 +46,8 @@ program
   │ kilo         │ AGENTS   │ .kilo/skills/tfs-tf-commands     │ —           │
   │ qoder        │ AGENTS   │ .qoder/skills/tfs-tf-commands    │ —           │
   │ claude       │ CLAUDE   │ .claude/skills/tfs-tf-commands   │ —           │
-  │ trae         │ AGENTS   │ .trae/skills/tfs-tf-commands     │ .trae/rules │
-  │ codebuddy    │ AGENTS   │ .codebuddy/skills/tfs-tf-commands│ .codebuddy/rules │
+  │ trae         │ —        │ .trae/skills/tfs-tf-commands     │ .trae/rules │
+  │ codebuddy    │ —        │ .codebuddy/skills/tfs-tf-commands│ .codebuddy/rules │
   └──────────────┴──────────┴──────────────────────────────────┴─────────────┘
 
   凭证：-u/-p/--url 传入即覆盖 tfs-config.json；密码写系统凭证库，不落盘。

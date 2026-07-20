@@ -29,8 +29,8 @@ forge init -d <目标项目> --skill-only
 | kilo | AGENTS.md | .kilo/skills/tfs-tf-commands | — |
 | qoder | AGENTS.md | .qoder/skills/tfs-tf-commands | — |
 | claude | CLAUDE.md | .claude/skills/tfs-tf-commands | — |
-| trae | AGENTS.md | .trae/skills/tfs-tf-commands | .trae/rules |
-| codebuddy | AGENTS.md | .codebuddy/skills/tfs-tf-commands | .codebuddy/rules |
+| trae | — | .trae/skills/tfs-tf-commands | .trae/rules |
+| codebuddy | — | .codebuddy/skills/tfs-tf-commands | .codebuddy/rules |
 
 ## 命令行参数
 
@@ -69,7 +69,8 @@ forge init -d . -u alice --url http://tfs:8080/tfs/ASS
 
 ```
 <目标项目>/
-├── AGENTS.md                   # 或 CLAUDE.md（根文档，含签出规则）
+├── AGENTS.md                   # opencode/kilo/qoder（根文档，含签出规则）
+├── CLAUDE.md                   # claude 专用
 ├── .trae/rules/                # 仅 trae/codebuddy
 │   └── tfs-command.md
 └── .<agent>/skills/tfs-tf-commands/
