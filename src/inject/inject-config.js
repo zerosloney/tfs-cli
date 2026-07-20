@@ -63,7 +63,8 @@ function injectConfig(targetDir, agentEntry, params = {}) {
 
 /**
  * 调用技能内 scripts/cred_helper.py 把密码写入系统凭证库
- * - spawn 失败或非零退出时只打印 warning，不抛错
+ * - 使用同步 spawn，等待完成后再返回，避免 fire-and-forget 竞态
+ * - 优先 python，回退 py，全部失败才 warn 不中断
  */
 function writeCredential(targetDir, agentEntry, username, password) {
   const helper = path.join(targetDir, agentEntry.skillDir, 'scripts', 'cred_helper.py');
@@ -74,63 +75,28 @@ function writeCredential(targetDir, agentEntry, username, password) {
     return;
   }
 
-  // Windows 上 python 命令可能是 python 或 py；优先 python，回退 py
-  const child = spawn('python', [helper, 'set', username], {
-    stdio: ['pipe', 'pipe', 'pipe'],
-    windowsHide: true
-  });
+  const pyCmd = ['python', 'py'];
+  let lastErr = '';
 
-  let stderr = '';
-  child.stderr.on('data', (d) => {
-    stderr += d.toString();
-  });
-
-  child.on('error', () => {
-    // python 不在 PATH：尝试 py 启动器
-    const fallback = spawn('py', [helper, 'set', username], {
-      stdio: ['pipe', 'ignore', 'pipe'],
+  for (const cmd of pyCmd) {
+    const child = spawn(cmd, [helper, 'set', username], {
       windowsHide: true
     });
-    let fbErr = '';
-    fallback.stderr.on('data', (d) => {
-      fbErr += d.toString();
-    });
-    fallback.on('error', () => {
-      console.warn(
-        `[forge] ⚠️  无法调用 python。请手动写入凭证：python "${helper}" set "${username}"`
-      );
-    });
-    fallback.on('exit', (code) => {
-      if (code === 0) {
-        console.log(`[forge] ✅ 凭证已写入系统凭证库 (user=${username})`);
-      } else {
-        console.warn(
-          `[forge] ⚠️  写入凭证库失败 (py exit=${code}): ${fbErr.trim()}。请手动: py "${helper}" set "${username}"`
-        );
-      }
-    });
-    try {
-      fallback.stdin.end(password);
-    } catch (_) {
-      /* ignore */
-    }
-  });
-
-  child.on('exit', (code) => {
-    if (code === 0) {
+    child.stdin.write(password + '\n');
+    child.stdin.end();
+    const { status, stderr: err } = child;
+    lastErr = err ? err.toString() : '';
+    if (status === 0) {
       console.log(`[forge] ✅ 凭证已写入系统凭证库 (user=${username})`);
-    } else {
-      console.warn(
-        `[forge] ⚠️  写入凭证库失败 (python exit=${code}): ${stderr.trim()}。请手动: python "${helper}" set "${username}"`
-      );
+      return;
     }
-  });
-
-  try {
-    child.stdin.end(password);
-  } catch (_) {
-    /* ignore */
+    // null = 命令不存在（非 PATH 问题），直接 break
+    if (status === null) break;
   }
+
+  console.warn(
+    `[forge] ⚠️  写入凭证库失败。请手动运行：python "${helper}" set "${username}"（密码从 stdin 读取）`
+  );
 }
 
 module.exports = { injectConfig, extractCollection, DEFAULT_COLLECTION };

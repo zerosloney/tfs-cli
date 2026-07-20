@@ -58,7 +58,7 @@ function initCommand(options) {
   // --rules-only 模式下未注入技能目录，-u/-p 无法落地到 tfs-config.json
   if (isRulesOnly && (username || password)) {
     console.warn(
-      `[forge] ⚠️  当前为 --rules-only 模式，未注入技能目录，-u/-p 将被忽略`
+      `[forge] ⚠️  当前为 --rules-only 模式，未注入技能目录，-u/-p 将被忽略；trae/codebuddy 本身也无根文档注入`
     );
   }
 
