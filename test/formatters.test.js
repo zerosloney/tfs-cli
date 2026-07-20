@@ -26,12 +26,20 @@ test('fail: 构造失败响应', () => {
   assert.equal(r.meta.tf_exit, 1);
 });
 
-test('format JSON 默认: 可解析回原对象', () => {
+test('format JSON 默认 compact: 无缩进，可解析回原对象', () => {
   const r = ok('init', { data: { server: 'http://h:8080' } });
   const text = format(r);
-  assert.ok(text.includes('"ok": true'));
+  assert.ok(!text.includes('\n'), 'compact 应为单行');
+  assert.ok(text.includes('"ok":true'), 'compact 应无键值间空格');
   const parsed = JSON.parse(text);
   assert.deepEqual(parsed, JSON.parse(JSON.stringify(r))); // 结构等价
+});
+
+test('format --pretty: 带缩进', () => {
+  const r = ok('init', { data: { server: 'http://h:8080' } });
+  const text = format(r, { pretty: true });
+  assert.ok(text.includes('\n'), 'pretty 应多行');
+  assert.ok(text.includes('"ok": true'), 'pretty 应有键值间空格');
 });
 
 test('format --text: 失败响应用人类句子', () => {

@@ -1,6 +1,6 @@
 'use strict';
 
-const { test, beforeEach } = require('node:test');
+const { test, beforeEach, after } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs');
 const os = require('os');
@@ -18,6 +18,8 @@ beforeEach(() => {
   customConfigPath = path.join(tmpDir, 'config.json');
   cfgMod.setConfigPath(customConfigPath);
 });
+
+after(() => cfgMod.resetConfigPath());
 
 test('init: 缺 url/username/password 时报错且不写文件', async () => {
   const r = await init({});

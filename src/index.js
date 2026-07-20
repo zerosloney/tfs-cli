@@ -30,19 +30,25 @@ const { CliError } = require('./errors');
  */
 function makeRunner(fn, { needsExecutor = false } = {}) {
   return async (...actionArgs) => {
-    // commander 总是以 Command 实例结尾
+    // commander 总是以 Command 实例结尾，倒数第二个是 options（即便没声明也传 {}）
     const cmd = actionArgs[actionArgs.length - 1];
-    // 倒数第二个是 options（即便有些命令没声明 options，commander 也传 {}）
-    const opts = actionArgs[actionArgs.length - 2] && typeof actionArgs[actionArgs.length - 2] === 'object'
-      ? actionArgs[actionArgs.length - 2]
+    const optsIdx = actionArgs.length - 2;
+    const opts = actionArgs[optsIdx] && typeof actionArgs[optsIdx] === 'object'
+      ? actionArgs[optsIdx]
       : {};
-    // 第一个是 positional（如果有）
-    const positional = actionArgs[0];
-    if (positional !== undefined && opts.inputPath === undefined) {
-      opts.inputPath = positional;
+    // positional 参数位于 [0, optsIdx)：支持 0/1/2+ 个（如 `config set <key> <value>`）
+    const positionals = actionArgs.slice(0, optsIdx);
+    opts.positionals = positionals;
+    // 兼容：单 positional 命令（如 `checkout <path>`）仍可从 opts.inputPath 取
+    if (positionals.length > 0 && opts.inputPath === undefined) {
+      opts.inputPath = positionals[0];
     }
 
-    const text = cmd.parent ? cmd.parent.opts().text : cmd.optsWithGlobals().text;
+    // 全局 option（--text / --pretty）必须用 optsWithGlobals() 读取；
+    // cmd.parent.opts() 在子命令 action 中拿不到 program 级 option。
+    const globalOpts = cmd.optsWithGlobals();
+    const text = globalOpts.text;
+    const pretty = globalOpts.pretty;
 
     let result;
     try {
@@ -67,7 +73,7 @@ function makeRunner(fn, { needsExecutor = false } = {}) {
       }
     }
 
-    process.stdout.write(format(result.response, { text }) + '\n');
+    process.stdout.write(format(result.response, { text, pretty }) + '\n');
     process.exit(result.exitCode);
   };
 }
@@ -82,6 +88,7 @@ function buildProgram() {
     )
     .version(pkg.version)
     .option('--text', '输出人类可读文本（默认 JSON）')
+    .option('--pretty', '输出带缩进的 JSON（默认 compact，省 token；人类调试用）')
     .option('--no-color', '禁用 ANSI 转义（保留供未来扩展）');
 
   program.addHelpText(
@@ -130,7 +137,7 @@ function buildProgram() {
   configCmd
     .command('set <key> <value>')
     .description('设置 server/username/domain/workspace/collection 之一')
-    .action(makeRunner(async (key, value) => cfgCmd.set(key, value)));
+    .action(makeRunner((opts) => cfgCmd.set(opts.positionals[0], opts.positionals[1])));
   configCmd
     .command('reset')
     .description('删除全局配置 + 凭证')
@@ -161,7 +168,7 @@ function buildProgram() {
     .option('--user <name>', '按用户筛选')
     .option('--mine', '仅当前用户')
     .option('--limit <n>', '最多 N 条')
-    .action(makeRunner((opts, _ctx) => withExecutor((ctx) => history(opts, ctx)), { needsExecutor: true }));
+    .action(makeRunner(history, { needsExecutor: true }));
 
   program
     .command('test')
@@ -204,6 +211,7 @@ function main(argv) {
         process.exit(e.exitCode || 0);
       }
       const text = argv.includes('--text');
+      const pretty = argv.includes('--pretty');
       process.stdout.write(
         format(
           {
@@ -214,7 +222,7 @@ function main(argv) {
             error: { code: 'INVALID_ARGS', message: e.message, details: null },
             meta: { duration_ms: 0 }
           },
-          { text }
+          { text, pretty }
         ) + '\n'
       );
       process.exit(e.exitCode || 1);

@@ -40,6 +40,20 @@ test('TfExecutor: 构造缺参数报错', () => {
   assert.throws(() => new TfExecutor({ tfPath: 'tf.exe', username: 'a' }), (e) => e instanceof CliError);
 });
 
+test('TfExecutor: 密码含逗号/分号 → 拒绝（信任边界校验）', () => {
+  for (const bad of ['a,b', 'a;b', 'foo,bar;baz']) {
+    assert.throws(
+      () => new TfExecutor({ tfPath: 'tf.exe', username: 'u', password: bad }),
+      (e) => e instanceof CliError && e.code === 'INVALID_ARGS',
+      `应拒绝密码: ${bad}`
+    );
+  }
+  // 正常密码不应抛
+  assert.doesNotThrow(() =>
+    new TfExecutor({ tfPath: 'tf.exe', username: 'u', password: 'normal-pwd_123!@#' })
+  );
+});
+
 test('TfExecutor: 构造 login arg 拼接', () => {
   const exec = new TfExecutor({
     tfPath: 'tf.exe',

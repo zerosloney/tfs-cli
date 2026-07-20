@@ -10,10 +10,11 @@ async function diff(opts, ctx) {
   // tf diff 返回 0 = 有差异 或 无差异；非 0 通常是路径问题
   if (!r.ok) {
     return {
-      response: fail('diff', 'AUTH_FAILED', '查看差异失败', {
+      response: fail('diff', ERROR_CODES.AUTH_FAILED, '查看差异失败', {
         path: target,
         details: { stderr: r.stderr.trim(), exitCode: r.exitCode },
-        meta: { tf_exit: r.exitCode, duration_ms: r.durationMs }
+        meta: { tf_exit: r.exitCode, duration_ms: r.durationMs },
+        startMs: ctx.startMs
       }),
       exitCode: 1
     };

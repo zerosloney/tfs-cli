@@ -56,10 +56,51 @@ test('inject: trae 写 .trae/rules/tfs-command.md', async () => {
   assert.match(content, /TFS 工作区管理/);
 });
 
+test('inject: trae 独立文件含 H1 + 命令表格，opencode 嵌入不含 H1', async () => {
+  // 同一源文件，两种场景的标题层级应不同
+  fs.mkdirSync(path.join(tmpDir, '.trae'));
+  await inject({ target: tmpDir, agent: ['trae', 'opencode'] });
+
+  const traeContent = fs.readFileSync(path.join(tmpDir, '.trae', 'rules', 'tfs-command.md'), 'utf-8');
+  const opencodeContent = fs.readFileSync(path.join(tmpDir, 'AGENTS.md'), 'utf-8');
+
+  // trae 独立文件：H1 + H2
+  assert.ok(traeContent.startsWith('# TFS 工作区管理'), 'trae 应以 H1 开头');
+  assert.ok(traeContent.includes('## TFS 工作区规则'), 'trae 应含 H2 主体');
+  assert.ok(traeContent.includes('| 命令 |'), 'trae 应含命令表格');
+
+  // opencode 嵌入：只有 H2，不含 H1（避免破坏 AGENTS.md 标题层级）
+  assert.ok(!opencodeContent.includes('# TFS 工作区管理'), 'AGENTS.md 不应含独立 H1');
+  assert.ok(opencodeContent.includes('## TFS 工作区规则'), 'AGENTS.md 应含 H2 主体');
+  assert.ok(opencodeContent.includes('| 命令 |'), 'AGENTS.md 也应含命令表格（单源共享）');
+
+  // 核心"不要做的事"两处都有一字不差
+  const core = '不要直接调 `tf.exe`';
+  assert.ok(traeContent.includes(core) && opencodeContent.includes(core), '核心规则两处一致');
+});
+
 test('inject: claude 写 CLAUDE.md 而非 AGENTS.md', async () => {
   await inject({ target: tmpDir, agent: ['claude'] });
   assert.ok(fs.existsSync(path.join(tmpDir, 'CLAUDE.md')));
   assert.ok(!fs.existsSync(path.join(tmpDir, 'AGENTS.md')));
+});
+
+test('inject: --agent kilo/qoder 显式传入时写 AGENTS.md', async () => {
+  for (const a of ['kilo', 'qoder']) {
+    const sub = fs.mkdtempSync(path.join(os.tmpdir(), 'tfs-cli-agent-'));
+    await inject({ target: sub, agent: [a] });
+    assert.ok(fs.existsSync(path.join(sub, 'AGENTS.md')), `${a} 应写 AGENTS.md`);
+  }
+});
+
+test('inject: 自动检测 .kilo / .qoder / .opencode → 归并 opencode 写 AGENTS.md', async () => {
+  for (const dir of ['.kilo', '.qoder', '.opencode']) {
+    const sub = fs.mkdtempSync(path.join(os.tmpdir(), 'tfs-cli-detect-'));
+    fs.mkdirSync(path.join(sub, dir));
+    const r = await inject({ target: sub });
+    assert.equal(r.response.ok, true);
+    assert.ok(fs.existsSync(path.join(sub, 'AGENTS.md')), `检测到 ${dir} 应写 AGENTS.md`);
+  }
 });
 
 test('inject: --dry-run 不写文件', async () => {

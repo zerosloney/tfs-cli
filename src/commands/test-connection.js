@@ -1,6 +1,7 @@
 'use strict';
 
 const { ok, fail } = require('../formatters/output');
+const { ERROR_CODES } = require('../errors');
 
 /**
  * tfs-cli test — 测试连接。
@@ -13,10 +14,11 @@ async function testConnection(_opts, ctx) {
   const r = await ctx.executor.run(['workspaces', collectionArg]);
   if (!r.ok) {
     return {
-      response: fail('test', 'AUTH_FAILED', '连接测试失败（凭证、用户名或服务器不可达）', {
+      response: fail('test', ERROR_CODES.AUTH_FAILED, '连接测试失败（凭证、用户名或服务器不可达）', {
         path: null,
         details: { stderr: r.stderr.trim(), exitCode: r.exitCode, stdout: r.stdout.trim().slice(0, 500) },
-        meta: { tf_exit: r.exitCode, duration_ms: r.durationMs }
+        meta: { tf_exit: r.exitCode, duration_ms: r.durationMs },
+        startMs: ctx.startMs
       }),
       exitCode: 1
     };

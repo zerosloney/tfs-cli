@@ -15,10 +15,11 @@ async function checkout(opts, ctx) {
   const r = await ctx.executor.run(['checkout', win], { includeServer: false });
   if (!r.ok) {
     return {
-      response: fail('checkout', 'AUTH_FAILED', classify(r.stderr) || '签出失败', {
+      response: fail('checkout', ERROR_CODES.AUTH_FAILED, classify(r.stderr) || '签出失败', {
         path: win,
         details: { stderr: r.stderr.trim(), exitCode: r.exitCode },
-        meta: { tf_exit: r.exitCode, duration_ms: r.durationMs }
+        meta: { tf_exit: r.exitCode, duration_ms: r.durationMs },
+        startMs: ctx.startMs
       }),
       exitCode: 1
     };

@@ -42,10 +42,11 @@ async function status(opts, ctx) {
   const r = await ctx.executor.run(['status', target, '/recursive'], { includeServer: false });
   if (!r.ok) {
     return {
-      response: fail('status', 'AUTH_FAILED', '查看待定更改失败', {
+      response: fail('status', ERROR_CODES.AUTH_FAILED, '查看待定更改失败', {
         path: target,
         details: { stderr: r.stderr.trim(), exitCode: r.exitCode },
-        meta: { tf_exit: r.exitCode, duration_ms: r.durationMs }
+        meta: { tf_exit: r.exitCode, duration_ms: r.durationMs },
+        startMs: ctx.startMs
       }),
       exitCode: 1
     };

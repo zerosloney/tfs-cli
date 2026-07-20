@@ -2,7 +2,7 @@
 
 const { toWindows } = require('../path');
 const { ok, fail } = require('../formatters/output');
-const { CliError, ERROR_CODES, ERROR_EXIT_CODES } = require('../errors');
+const { CliError, ERROR_CODES } = require('../errors');
 const { extractOwner, sameUser } = require('../executor');
 
 /**
@@ -47,10 +47,11 @@ async function edit(opts, ctx) {
     const ownerRetry = extractOwner(retry.stdout);
     if (ownerRetry && !sameUser(ownerRetry, ctx.config.username)) {
       return {
-        response: fail('edit', 'CONFLICT', `文件已被 ${ownerRetry} 签出（无法签出）`, {
+        response: fail('edit', ERROR_CODES.CONFLICT, `文件已被 ${ownerRetry} 签出（无法签出）`, {
           path: win,
           details: { owner: ownerRetry, currentUser: ctx.config.username, stderr: ckRes.stderr.trim() },
-          meta: { tf_exit: ckRes.exitCode, duration_ms: ckRes.durationMs }
+          meta: { tf_exit: ckRes.exitCode, duration_ms: ckRes.durationMs },
+          startMs: ctx.startMs
         }),
         exitCode: 2
       };
@@ -73,10 +74,11 @@ async function edit(opts, ctx) {
       };
     }
     return {
-      response: fail('edit', 'AUTH_FAILED', '签出失败（不在工作区、凭证过期或网络问题）', {
+      response: fail('edit', ERROR_CODES.AUTH_FAILED, '签出失败（不在工作区、凭证过期或网络问题）', {
         path: win,
         details: { stderr: ckRes.stderr.trim(), exitCode: ckRes.exitCode },
-        meta: { tf_exit: ckRes.exitCode, duration_ms: ckRes.durationMs }
+        meta: { tf_exit: ckRes.exitCode, duration_ms: ckRes.durationMs },
+        startMs: ctx.startMs
       }),
       exitCode: 1
     };
@@ -95,10 +97,11 @@ async function edit(opts, ctx) {
     };
   }
   return {
-    response: fail('edit', 'CONFLICT', `文件已被 ${owner} 签出，无法编辑`, {
+    response: fail('edit', ERROR_CODES.CONFLICT, `文件已被 ${owner} 签出，无法编辑`, {
       path: win,
       details: { owner, currentUser: ctx.config.username },
-      meta: { tf_exit: statusRes.exitCode, duration_ms: statusRes.durationMs }
+      meta: { tf_exit: statusRes.exitCode, duration_ms: statusRes.durationMs },
+      startMs: ctx.startMs
     }),
     exitCode: 2
   };

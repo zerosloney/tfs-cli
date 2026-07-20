@@ -4,8 +4,8 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { ok, fail } = require('../formatters/output');
-const { CliError, ERROR_CODES, ERROR_EXIT_CODES } = require('../errors');
-const { canonicalize } = require('../path');
+const { CliError, ERROR_CODES } = require('../errors');
+const { toWindows, canonicalize } = require('../path');
 
 /**
  * tfs-cli history [path] [flags]
@@ -17,7 +17,7 @@ const { canonicalize } = require('../path');
  *   --recursive, -r      递归
  *   --user <name>        按用户筛选
  *   --mine               仅当前用户
- *   --limit <N>          最多 N 条（默认 10；带 version 时不限制）
+ *   --limit <N>          最多 N 条（默认 10；显式指定时即使带 --range 也生效）
  *
  * 缓存：默认开启 5 分钟 TTL，按规范化路径做 key。
  * 当 flags 改变查询形状时（--today/--since/--range/--user/--recursive）跳过缓存。
@@ -84,8 +84,7 @@ function buildRange(from, to) {
  * @param {object} ctx
  */
 async function history(opts, ctx) {
-  const targetRaw = opts.inputPath || '.';
-  const win = opts.inputPath ? require('../path').toWindows(opts.inputPath) : '.';
+  const win = opts.inputPath ? toWindows(opts.inputPath) : '.';
   const cacheKey = canonicalize(win);
 
   // 构造 tf 参数
@@ -102,10 +101,9 @@ async function history(opts, ctx) {
   if (opts.mine) args.push('/user:' + ctx.config.username);
   else if (opts.user) args.push('/user:' + opts.user);
 
-  // limit：仅在不带 version 时生效
+  // limit：用户显式指定时一律加 /stopafter（与 /version: 范围不冲突）
   const limit = opts.limit != null ? parseInt(String(opts.limit), 10) : null;
-  if (limit && Number.isFinite(limit) && !versionRange) args.push('/stopafter:' + limit);
-  else if (limit && Number.isFinite(limit) && versionRange) args.push('/stopafter:' + limit);
+  if (limit && Number.isFinite(limit)) args.push('/stopafter:' + limit);
 
   const queryShape = !!versionRange || !!opts.user || !!opts.mine || !!opts.recursive;
   const ttl = getTtl();
@@ -116,14 +114,14 @@ async function history(opts, ctx) {
     const cache = loadCache();
     const entry = cache[cacheKey];
     if (entry && Date.now() - (entry.ts || 0) <= ttl * 1000) {
+      const cachedEntries = parseHistoryEntries(entry.output);
       return {
         response: ok('history', {
           path: win,
           data: {
             target: win,
-            entries: parseHistoryEntries(entry.output),
-            count: 0,
-            raw: entry.output
+            entries: cachedEntries,
+            count: cachedEntries.length
           },
           meta: { tf_exit: 0, cache_hit: true, duration_ms: 0 },
           startMs: ctx.startMs
@@ -136,10 +134,11 @@ async function history(opts, ctx) {
   const r = await ctx.executor.run(args);
   if (!r.ok) {
     return {
-      response: fail('history', 'AUTH_FAILED', '查看历史失败', {
+      response: fail('history', ERROR_CODES.AUTH_FAILED, '查看历史失败', {
         path: win,
         details: { stderr: r.stderr.trim(), exitCode: r.exitCode },
-        meta: { tf_exit: r.exitCode, cache_hit: false, duration_ms: r.durationMs }
+        meta: { tf_exit: r.exitCode, cache_hit: false, duration_ms: r.durationMs },
+        startMs: ctx.startMs
       }),
       exitCode: 1
     };
@@ -158,8 +157,7 @@ async function history(opts, ctx) {
       data: {
         target: win,
         entries,
-        count: entries.length,
-        raw: r.stdout
+        count: entries.length
       },
       meta: { tf_exit: r.exitCode, cache_hit: false, duration_ms: r.durationMs },
       startMs: ctx.startMs

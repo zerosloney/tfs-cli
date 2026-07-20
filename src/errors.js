@@ -12,6 +12,8 @@
  *   2 = 文件冲突（edit 子命令下文件被他人签出）
  *   3 = 配置缺失（需要 tfs-cli init）
  *   4 = tf.exe 未找到
+ *
+ * 退出码来源：CliError 构造时传入的 exitCode（默认 1），edit 的 CONFLICT 显式传 2。
  */
 
 class CliError extends Error {
@@ -38,22 +40,8 @@ const ERROR_CODES = Object.freeze({
   CONFIG_MISSING: 'CONFIG_MISSING',
   CREDENTIAL_MISSING: 'CREDENTIAL_MISSING',
   CONFIG_INVALID: 'CONFIG_INVALID',
-  UNKNOWN_ACTION: 'UNKNOWN_ACTION',
   INVALID_ARGS: 'INVALID_ARGS',
   INTERNAL_ERROR: 'INTERNAL_ERROR'
 });
 
-const ERROR_EXIT_CODES = Object.freeze({
-  AUTH_FAILED: 1,
-  PATH_NOT_IN_WORKSPACE: 1,
-  CONFLICT: 2,
-  TF_NOT_FOUND: 4,
-  CONFIG_MISSING: 3,
-  CREDENTIAL_MISSING: 3,
-  CONFIG_INVALID: 3,
-  UNKNOWN_ACTION: 1,
-  INVALID_ARGS: 1,
-  INTERNAL_ERROR: 1
-});
-
-module.exports = { CliError, ERROR_CODES, ERROR_EXIT_CODES };
+module.exports = { CliError, ERROR_CODES };

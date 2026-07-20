@@ -267,3 +267,36 @@ test('test: workspaces 失败 → AUTH_FAILED', async () => {
   assert.equal(r.response.ok, false);
   assert.equal(r.response.error.code, 'AUTH_FAILED');
 });
+
+// ────────── J1 回归：失败响应 duration_ms 不再恒为 0 ──────────
+
+test('J1: 失败响应的 meta.duration_ms 反映真实耗时（不再恒为 0）', async () => {
+  // 用 fake spawn 模拟耗时：startMs 早于 fail() 调用时刻 → duration_ms > 0
+  const { checkout } = require('../src/commands/checkout');
+  const startMs = Date.now() - 100; // 模拟命令已运行 100ms
+  const calls = [];
+  const slowSpawn = () => {
+    const child = new EventEmitter();
+    child.stdout = new EventEmitter();
+    child.stderr = new EventEmitter();
+    setImmediate(() => {
+      child.stderr.emit('data', Buffer.from('locked', 'utf-8'));
+      child.emit('close', 1);
+    });
+    return child;
+  };
+  const ctx = {
+    config: { server: 'http://h', username: 'alice', domain: '', collection: 'ASS' },
+    password: 's', tfPath: 'tf.exe',
+    executor: new (require('../src/executor').TfExecutor)({
+      tfPath: 'tf.exe', username: 'alice', password: 's', spawnFn: slowSpawn
+    }),
+    startMs
+  };
+  const r = await checkout({ inputPath: 'C:\\Foo.cs' }, ctx);
+  assert.equal(r.response.ok, false);
+  assert.ok(
+    r.response.meta.duration_ms >= 50,
+    `duration_ms 应反映真实耗时（≥50ms），实际 ${r.response.meta.duration_ms}（修复前恒为 0）`
+  );
+});

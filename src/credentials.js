@@ -118,7 +118,7 @@ function deletePassword(username) {
       wc.remove(target(username));
       return true;
     } catch (e) {
-      return false;
+      // 落到 cmdkey 回退（与 setPassword 行为对称）
     }
   }
   // cmdkey 回退

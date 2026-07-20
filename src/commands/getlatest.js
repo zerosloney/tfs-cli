@@ -9,10 +9,11 @@ async function getlatest(opts, ctx) {
   const r = await ctx.executor.run(['get', target, '/recursive']);
   if (!r.ok) {
     return {
-      response: fail('getlatest', 'AUTH_FAILED', '获取最新失败', {
+      response: fail('getlatest', ERROR_CODES.AUTH_FAILED, '获取最新失败', {
         path: target,
         details: { stderr: r.stderr.trim(), exitCode: r.exitCode },
-        meta: { tf_exit: r.exitCode, duration_ms: r.durationMs }
+        meta: { tf_exit: r.exitCode, duration_ms: r.durationMs },
+        startMs: ctx.startMs
       }),
       exitCode: 1
     };

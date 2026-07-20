@@ -27,7 +27,7 @@ node bin/tfs-cli.js --help
 ```bash
 # 1. 初始化全局配置（写入 ~/.config/tfs-cli/config.json + 凭证库）
 tfs-cli init -U http://tfs:8080/tfs/ASS -u alice
-# 之后会提示输入密码（输入不可见——直接粘贴亦可）
+# 之后会提示输入密码（注意：输入可见，请避免在公共环境使用）
 
 # 或全非交互（适合自动化）
 TFS_PASSWORD=secret tfs-cli init -U http://tfs:8080/tfs/ASS -u alice
@@ -65,9 +65,14 @@ tfs-cli edit src/Program.cs
 
 ## 输出格式
 
-**所有命令 stdout 都是 JSON**——AI 直接解析，无需正则匹配文本。
+**所有命令 stdout 都是 JSON**——默认 **compact**（省 token），AI 直接 `JSON.parse` 取字段。加 `--pretty` 输出带缩进的 JSON（人类调试用）。
 
-成功响应：
+成功响应（compact 默认）：
+```json
+{"ok":true,"action":"checkout","path":"C:\\Projects\\MyApp\\Program.cs","data":{"status":"checked_out"},"error":null,"meta":{"tf_exit":0,"duration_ms":235}}
+```
+
+`--pretty` 输出（人类调试）：
 ```json
 {
   "ok": true,
@@ -141,6 +146,7 @@ tfs-cli --text status
   ```
 
 - 凭证：Windows 凭据管理器，target = `tfs-cli:<username>`，通过 `wincred` 包读写（可选依赖）。fallback 用 `cmdkey` 写。
+- **密码限制**：`tf.exe` 的 `/login:user,password` 参数按第一个逗号分割且不支持转义，因此密码**不能包含逗号或分号**——含此类字符的密码会在构造 `TfExecutor` 时被拒绝（`INVALID_ARGS`），避免静默鉴权失败。
 
 ## AI Agent 集成
 

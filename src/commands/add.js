@@ -11,10 +11,11 @@ async function add(opts, ctx) {
   const r = await ctx.executor.run(['add', win, '/recursive'], { includeServer: false });
   if (!r.ok) {
     return {
-      response: fail('add', 'PATH_NOT_IN_WORKSPACE', '加入源代码管理失败', {
+      response: fail('add', ERROR_CODES.PATH_NOT_IN_WORKSPACE, '加入源代码管理失败', {
         path: win,
         details: { stderr: r.stderr.trim(), exitCode: r.exitCode },
-        meta: { tf_exit: r.exitCode, duration_ms: r.durationMs }
+        meta: { tf_exit: r.exitCode, duration_ms: r.durationMs },
+        startMs: ctx.startMs
       }),
       exitCode: 1
     };

@@ -68,16 +68,19 @@ function fail(action, code, message, { path = null, details = null, meta = {}, s
 /**
  * 序列化为字符串。
  *
+ * 默认输出 compact JSON（省 token，AI 直接 JSON.parse 即可）。
+ * pretty=true 时输出带缩进的 JSON（人类调试用）。
+ * text=true 时输出人类可读短摘要。
+ *
  * @param {object} response
  * @param {object} [opts]
  * @param {boolean} [opts.text=false]
+ * @param {boolean} [opts.pretty=false]
  * @returns {string}
  */
-function format(response, { text = false } = {}) {
-  if (!text) {
-    return JSON.stringify(response, null, 2);
-  }
-  return formatText(response);
+function format(response, { text = false, pretty = false } = {}) {
+  if (text) return formatText(response);
+  return pretty ? JSON.stringify(response, null, 2) : JSON.stringify(response);
 }
 
 /**

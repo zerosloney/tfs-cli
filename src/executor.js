@@ -27,6 +27,16 @@ class TfExecutor {
     if (!tfPath) throw new CliError(ERROR_CODES.TF_NOT_FOUND, 'tfPath 不能为空');
     if (!username) throw new CliError(ERROR_CODES.CREDENTIAL_MISSING, 'username 不能为空');
     if (!password) throw new CliError(ERROR_CODES.CREDENTIAL_MISSING, 'password 不能为空');
+    // intentional-simple: tf.exe 的 /login:user,password 按第一个逗号分割且不支持转义。
+    // 含逗号的密码会被 tf.exe 静默截断 → 鉴权失败但原因难定位。
+    // 在信任边界上显式拒绝，避免静默错误。升级路径：改用环境变量或 stdin 传递凭证。
+    if (/[,;]/.test(password)) {
+      throw new CliError(
+        ERROR_CODES.INVALID_ARGS,
+        '密码不能包含逗号或分号（tf.exe /login 参数不支持转义，会导致鉴权静默失败）',
+        { hint: '请修改 TFS 密码或使用环境变量 TFS_PASSWORD 配合无逗号密码' }
+      );
+    }
     this.tfPath = tfPath;
     this.username = username;
     this.password = password;

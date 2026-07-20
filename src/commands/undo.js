@@ -11,10 +11,11 @@ async function undo(opts, ctx) {
   const r = await ctx.executor.run(['undo', win], { includeServer: false });
   if (!r.ok) {
     return {
-      response: fail('undo', 'AUTH_FAILED', '撤销签出失败', {
+      response: fail('undo', ERROR_CODES.AUTH_FAILED, '撤销签出失败', {
         path: win,
         details: { stderr: r.stderr.trim(), exitCode: r.exitCode },
-        meta: { tf_exit: r.exitCode, duration_ms: r.durationMs }
+        meta: { tf_exit: r.exitCode, duration_ms: r.durationMs },
+        startMs: ctx.startMs
       }),
       exitCode: 1
     };
