@@ -1,9 +1,20 @@
 'use strict';
 
+const fs = require('fs');
 const { toWindows } = require('../path');
 const { ok, fail } = require('../formatters/output');
 const { CliError, ERROR_CODES } = require('../errors');
 const { extractOwner, sameUser } = require('../executor');
+
+/**
+ * checkout 失败时，tf.exe 对"项不存在于工作区 / 无访问权限"的 stderr 特征。
+ * 命中此特征 + 文件磁盘存在 → 判定为"新文件尚未加入源代码管理"，
+ * 返回 PATH_NOT_IN_WORKSPACE 并提示运行 `tfs-cli add`。
+ * 否则维持 AUTH_FAILED（真凭证/网络/工作区映射问题）。
+ * （intentional-simple: 字符串匹配 tf.exe 中/英 stderr；升级路径是让 tf.exe
+ * 输出结构化错误码后再改判据。）
+ */
+const NOT_IN_SOURCE_CONTROL = /未能找到项|没有访问.*权限|no items? (?:could be )?found|not (?:currently )?(?:mapped|found) in (?:your )?workspace/i;
 
 /**
  * 合成当前用户身份标识：如果 config 有 domain，用 DOMAIN\username 格式。
@@ -86,10 +97,34 @@ async function edit(opts, ctx) {
         exitCode: 0
       };
     }
+    // checkout 失败、status 也无 owner：判一次是不是"新文件尚未加入源代码管理"。
+    // 文件磁盘存在 + tf 报"找不到项/无权限"→ 引导调用方先 tfs-cli add；
+    // 否则才是真的凭证过期/网络/工作区映射问题 → AUTH_FAILED。
+    const stderrText = ckRes.stderr.trim();
+    if (fs.existsSync(win) && NOT_IN_SOURCE_CONTROL.test(stderrText)) {
+      return {
+        response: fail(
+          'edit',
+          ERROR_CODES.PATH_NOT_IN_WORKSPACE,
+          '文件不在源代码管理中（新文件）— 请先运行 tfs-cli add 将其加入源代码管理，再编辑',
+          {
+            path: win,
+            details: {
+              hint: 'tfs-cli add <path>',
+              stderr: stderrText,
+              exitCode: ckRes.exitCode
+            },
+            meta: { tf_exit: ckRes.exitCode, duration_ms: ckRes.durationMs },
+            startMs: ctx.startMs
+          }
+        ),
+        exitCode: 1
+      };
+    }
     return {
       response: fail('edit', ERROR_CODES.AUTH_FAILED, '签出失败（不在工作区、凭证过期或网络问题）', {
         path: win,
-        details: { stderr: ckRes.stderr.trim(), exitCode: ckRes.exitCode },
+        details: { stderr: stderrText, exitCode: ckRes.exitCode },
         meta: { tf_exit: ckRes.exitCode, duration_ms: ckRes.durationMs },
         startMs: ctx.startMs
       }),

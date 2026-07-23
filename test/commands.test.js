@@ -1,5 +1,8 @@
 'use strict';
 
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { EventEmitter } = require('events');
@@ -201,6 +204,97 @@ test('edit: checkout 失败但重查发现被人签出 → CONFLICT', async () =
   assert.equal(r.response.error.code, 'CONFLICT');
   assert.equal(r.exitCode, 2);
   assert.equal(r.response.error.details.owner, 'charlie');
+});
+
+test('edit: 新文件（磁盘存在但不在源代码管理）→ PATH_NOT_IN_WORKSPACE + hint', async () => {
+  // 用真实临时文件让 fs.existsSync 为真，否则 edit 的新文件分支判据不成立
+  const tmpFile = path.join(os.tmpdir(), `tfs-cli-edit-new-${process.pid}-${Date.now()}.sql`);
+  fs.writeFileSync(tmpFile, '-- pending\n');
+  try {
+    const calls = [];
+    let i = 0;
+    // 调用序：status(空) → checkout(失败,stderr 命中"未能找到项") → status retry(空)
+    const spawnFn = (tfPath, args) => {
+      calls.push({ tfPath, args });
+      const isCheckout = args[0] === 'checkout';
+      i++;
+      const child = new EventEmitter();
+      child.stdout = new EventEmitter();
+      child.stderr = new EventEmitter();
+      setImmediate(() => {
+        if (isCheckout) {
+          child.stderr.emit('data', Buffer.from('在你的工作区中未能找到项 ' + tmpFile, 'utf-8'));
+        }
+        child.emit('close', isCheckout ? 1 : 0);
+      });
+      return child;
+    };
+    const ctx = {
+      config: { server: 'http://h', username: 'alice', domain: '', collection: 'ASS' },
+      password: 's', tfPath: 'tf.exe',
+      executor: new TfExecutor({ tfPath: 'tf.exe', username: 'alice', password: 's', spawnFn }),
+      startMs: Date.now()
+    };
+    const r = await edit({ inputPath: tmpFile }, ctx);
+    assert.equal(r.response.ok, false);
+    assert.equal(r.response.error.code, 'PATH_NOT_IN_WORKSPACE', '应识别为新文件而非 AUTH_FAILED');
+    assert.equal(r.exitCode, 1);
+    assert.equal(r.response.error.details.hint, 'tfs-cli add <path>');
+    assert.equal(r.response.path, tmpFile);
+  } finally {
+    fs.unlinkSync(tmpFile);
+  }
+});
+
+test('edit: checkout 失败但文件磁盘不存在 → 仍是 AUTH_FAILED（不是新文件分支）', async () => {
+  // 文件磁盘不存在 → 不应进入新文件分支，维持 AUTH_FAILED
+  const calls = [];
+  const spawnFn = (tfPath, args) => {
+    calls.push({ tfPath, args });
+    const isCheckout = args[0] === 'checkout';
+    const child = new EventEmitter();
+    child.stdout = new EventEmitter();
+    child.stderr = new EventEmitter();
+    setImmediate(() => {
+      if (isCheckout) {
+        child.stderr.emit('data', Buffer.from('在你的工作区中未能找到项', 'utf-8'));
+      }
+      child.emit('close', isCheckout ? 1 : 0);
+    });
+    return child;
+  };
+  const ctx = {
+    config: { server: 'http://h', username: 'alice', domain: '', collection: 'ASS' },
+    password: 's', tfPath: 'tf.exe',
+    executor: new TfExecutor({ tfPath: 'tf.exe', username: 'alice', password: 's', spawnFn }),
+    startMs: Date.now()
+  };
+  const r = await edit({ inputPath: 'C:\\Definitely\\Missing\\File.cs' }, ctx);
+  assert.equal(r.response.ok, false);
+  assert.equal(r.response.error.code, 'AUTH_FAILED', '磁盘不存在的文件不应判为新文件');
+});
+
+// ────────── add ──────────
+
+test('add: 成功 → 带 /recursive', async () => {
+  const { add } = require('../src/commands/add');
+  const { ctx, calls } = makeCtx({ stdout: 'OK', exitCode: 0 });
+  const r = await add({ inputPath: 'C:\\Foo\\New.cs' }, ctx);
+  assert.equal(r.response.ok, true);
+  assert.equal(r.exitCode, 0);
+  assert.equal(r.response.data.status, 'added');
+  assert.ok(calls[0].args.includes('/recursive'), 'add 应带 /recursive');
+  assert.deepEqual(calls[0].args.slice(0, 2), ['add', 'C:\\Foo\\New.cs']);
+  assert.ok(!calls[0].args.some((a) => a.startsWith('/server:')), 'add 不应包含 /server:');
+});
+
+test('add: tf 失败 → PATH_NOT_IN_WORKSPACE', async () => {
+  const { add } = require('../src/commands/add');
+  const { ctx } = makeCtx({ stderr: 'no items found', exitCode: 1 });
+  const r = await add({ inputPath: 'C:\\Foo\\New.cs' }, ctx);
+  assert.equal(r.response.ok, false);
+  assert.equal(r.response.error.code, 'PATH_NOT_IN_WORKSPACE');
+  assert.equal(r.exitCode, 1);
 });
 
 // ────────── status (parsing) ──────────

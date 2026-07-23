@@ -8,6 +8,7 @@
 2. 解析 JSON 输出：
    - `ok: true` → 可以编辑
    - `ok: false, error.code = "CONFLICT"` → **停止**，报告 `details.owner`
+   - `ok: false, error.code = "PATH_NOT_IN_WORKSPACE"` → **新文件**，先 `tfs-cli add <path>` 加入源代码管理，再 `tfs-cli edit <path>`
 3. 编辑后用 `tfs-cli diff <path>` 查看变更
 
 ### 常用命令
@@ -15,6 +16,7 @@
 | 命令 | 用途 |
 |------|------|
 | `edit <path>` | 编辑前自动签出 + 冲突检测（**必用**） |
+| `add <path>` | 新文件加入源代码管理（编辑磁盘上不存在于 TFS 的新文件前必用） |
 | `checkout <path>` | 签出文件（edit 的底层命令，除非 edit 失败否则不用） |
 | `diff [path]` | 差异对比 |
 | `status [path]` | 待定更改 |
