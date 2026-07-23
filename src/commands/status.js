@@ -39,7 +39,9 @@ function parseStatus(stdout) {
 
 async function status(opts, ctx) {
   const target = opts.inputPath ? toWindows(opts.inputPath) : '.';
-  const r = await ctx.executor.run(['status', target, '/recursive'], { includeServer: false });
+  const args = ['status', target];
+  if (opts.recursive !== false) args.push('/recursive');
+  const r = await ctx.executor.run(args, { includeServer: false });
   if (!r.ok) {
     return {
       response: fail('status', ERROR_CODES.AUTH_FAILED, '查看待定更改失败', {

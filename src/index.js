@@ -155,8 +155,11 @@ function buildProgram() {
   tfCmd('edit <path>', '编辑前自动签出 + 冲突检测（推荐在 Edit/Write 工具前调用）', edit);
   tfCmd('add <path>', '加入源代码管理（递归目录）', add);
   tfCmd('getlatest [path]', '获取最新版本（默认当前目录递归）', getlatest);
-  tfCmd('status [path]', '查看待定更改', status);
-  tfCmd('diff [path]', '查看与 TFS 最新版本的差异（unified diff）', diff);
+  tfCmd('status [path]', '查看待定更改', status).option('-r, --recursive', '递归子目录');
+  tfCmd('diff [path]', '查看与 TFS 最新版本的差异（unified diff）', diff)
+    .option('-r, --recursive', '递归子目录')
+    .option('-o, --output <file>', '将差异输出到文件（避免终端截断），JSON 返回文件路径')
+    .option('--lines <n>', '仅保留变更行及 N 行上下文（0 = 仅变更行）');
 
   program
     .command('history [path]')

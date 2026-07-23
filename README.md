@@ -45,6 +45,9 @@ tfs-cli inject -a all                                            # 全部
 tfs-cli inject                                                    # 自动检测
 ```
 
+> ⚠️ **AI Agent 规则：所有 TFS 操作必须通过 `tfs-cli` 执行，禁止直接调用 `tf.exe`。**
+> `tfs-cli` 提供结构化 JSON 输出，便于 AI 解析；直接调用 `tf` 会绕过这些能力。
+
 | 文件 | 适用 |
 |------|------|
 | `AGENTS.md` | opencode / kilo / qoder / zcode / omp |
