@@ -288,13 +288,47 @@ test('add: 成功 → 带 /recursive', async () => {
   assert.ok(!calls[0].args.some((a) => a.startsWith('/server:')), 'add 不应包含 /server:');
 });
 
-test('add: tf 失败 → PATH_NOT_IN_WORKSPACE', async () => {
+test('add: tf 失败（真正不在工作区）→ PATH_NOT_IN_WORKSPACE', async () => {
   const { add } = require('../src/commands/add');
-  const { ctx } = makeCtx({ stderr: 'no items found', exitCode: 1 });
+  // '未能找到项' 是 edit.js NOT_IN_SOURCE_CONTROL 正则所匹配的真正失败信号，
+  // 不应被 ALREADY_TRACKED 守卫吃掉
+  const { ctx } = makeCtx({ stderr: '在你的工作区中未能找到项 C:\\Foo\\New.cs', exitCode: 1 });
   const r = await add({ inputPath: 'C:\\Foo\\New.cs' }, ctx);
   assert.equal(r.response.ok, false);
   assert.equal(r.response.error.code, 'PATH_NOT_IN_WORKSPACE');
   assert.equal(r.exitCode, 1);
+});
+
+test('add: 文件已被 add 过 → 幂等成功 (already-tracked)', async () => {
+  const { add } = require('../src/commands/add');
+  // 用真实临时文件让 fs.existsSync 为真，否则 ALREADY_TRACKED 守卫不成立
+  const tmpFile = path.join(os.tmpdir(), `tfs-cli-add-tracked-${process.pid}-${Date.now()}.cs`);
+  fs.writeFileSync(tmpFile, '// pending\n');
+  try {
+    const { ctx } = makeCtx({ stderr: '没有文件匹配。\r\n已忽略与以下排除匹配的项: obj;bin', exitCode: 1 });
+    const r = await add({ inputPath: tmpFile }, ctx);
+    assert.equal(r.response.ok, true);
+    assert.equal(r.response.data.status, 'already-tracked');
+    assert.equal(r.exitCode, 0);
+  } finally {
+    fs.unlinkSync(tmpFile);
+  }
+});
+
+test('add: 磁盘存在但真正失败仍报 PATH_NOT_IN_WORKSPACE', async () => {
+  const { add } = require('../src/commands/add');
+  // 文件存在但 stderr 命中 NOT_IN_SOURCE_CONTROL（不是 ALREADY_TRACKED）→ 仍报失败
+  const tmpFile = path.join(os.tmpdir(), `tfs-cli-add-fail-${process.pid}-${Date.now()}.cs`);
+  fs.writeFileSync(tmpFile, '// pending\n');
+  try {
+    const { ctx } = makeCtx({ stderr: '在你的工作区中未能找到项 ' + tmpFile, exitCode: 1 });
+    const r = await add({ inputPath: tmpFile }, ctx);
+    assert.equal(r.response.ok, false);
+    assert.equal(r.response.error.code, 'PATH_NOT_IN_WORKSPACE');
+    assert.equal(r.exitCode, 1);
+  } finally {
+    fs.unlinkSync(tmpFile);
+  }
 });
 
 // ────────── status (parsing) ──────────
