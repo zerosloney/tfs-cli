@@ -2,6 +2,7 @@
 
 const { Command } = require('commander');
 const pkg = require('../package.json');
+const { checkUpdate } = require('./update-check');
 
 const { format } = require('./formatters/output');
 const { withExecutor } = require('./commands/_helpers');
@@ -220,6 +221,9 @@ function collectOpt(val, memo) {
 }
 
 async function main(argv) {
+  // 非阻塞更新检查 —— 不等待、不阻塞、不报错
+  checkUpdate(pkg.version);
+
   try {
     const program = buildProgram();
     program.exitOverride();
