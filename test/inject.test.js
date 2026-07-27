@@ -47,6 +47,13 @@ test('inject: 已存在 marker 时替换中间内容', async () => {
   assert.ok(content.includes('FOOTER'), 'FOOTER 保留');
 });
 
+test('inject: 内容相同 mode 为 unchanged', async () => {
+  const r1 = await inject({ target: tmpDir, agent: ['opencode'] });
+  assert.equal(r1.response.data.written[0].mode, 'create');
+  const r2 = await inject({ target: tmpDir, agent: ['opencode'] });
+  assert.equal(r2.response.data.written[0].mode, 'unchanged');
+});
+
 test('inject: trae 写 .trae/rules/tfs-command.md', async () => {
   fs.mkdirSync(path.join(tmpDir, '.trae'));
   await inject({ target: tmpDir, agent: ['trae'] });

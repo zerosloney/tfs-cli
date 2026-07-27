@@ -67,9 +67,15 @@ function applyMarker(originalBody, snippet, force) {
       // 防御 — 上面已确认同时存在
       return { mode: 'append', body: originalBody + '\n' + snippet };
     }
+    // 提取当前 marker 内容，与 snippet 比较
+    const currentBlock = originalBody.match(re)[0];
+    const newBlock = `${MARKER_START}\n${snippet}\n${MARKER_END}`;
+    if (currentBlock === newBlock) {
+      return { mode: 'unchanged', body: originalBody };
+    }
     return {
       mode: 'marker-replaced',
-      body: originalBody.replace(re, `${MARKER_START}\n${snippet}\n${MARKER_END}`)
+      body: originalBody.replace(re, newBlock)
     };
   }
   // 无 marker：强制覆盖 → 替换全文；否则追加
@@ -181,7 +187,7 @@ async function inject(opts = {}) {
       continue;
     }
 
-    if (!dryRun) writeFileEnsuringDir(target, body);
+    if (!dryRun && mode !== 'unchanged') writeFileEnsuringDir(target, body);
     plan.push({ agent: a, target, mode });
     written.push({ agent: a, target, mode: dryRun ? `${mode} (dry-run)` : mode });
   }
