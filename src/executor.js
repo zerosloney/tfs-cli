@@ -34,7 +34,7 @@ class TfExecutor {
       throw new CliError(
         ERROR_CODES.INVALID_ARGS,
         '密码不能包含逗号或分号（tf.exe /login 参数不支持转义，会导致鉴权静默失败）',
-        { hint: '请修改 TFS 密码或使用环境变量 TFS_PASSWORD 配合无逗号密码' }
+        { hint: '请修改 TFS 密码；该限制源于 tf.exe 命令行本身，无法通过环境变量绕过' }
       );
     }
     this.tfPath = tfPath;

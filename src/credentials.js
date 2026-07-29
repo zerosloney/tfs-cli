@@ -4,13 +4,11 @@
  * Windows 凭证库抽象。
  *
  * 写入/删除使用系统自带 cmdkey；读取通过 PowerShell 调用 CredReadW。
- * 密码不写配置文件，PowerShell 脚本从 stdin 读取，凭证 target 通过环境变量传递。
+ * 密码不写配置文件。读取脚本经 -EncodedCommand（UTF-16LE base64）注入 PowerShell，
+ * 不在磁盘释放临时 .ps1（规避防毒软件与 ExecutionPolicy 拦截）；凭证 target 经环境变量传递。
  */
 
 const { CliError, ERROR_CODES } = require('./errors');
-const fs = require('fs');
-const path = require('path');
-const os = require('os');
 
 const KEYRING_SERVICE = 'tfs-cli';
 
@@ -164,24 +162,19 @@ function hasPassword(username, opts = {}) {
 function readPassword(username, spawnSyncFn) {
   const spawnSync = spawnSyncFn || require('child_process').spawnSync;
   const credentialTarget = target(username);
-  const tmpScript = path.join(os.tmpdir(), `tfs-cli-cred-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.ps1`);
 
-  // intentional-simple: 写临时 .ps1 文件执行（-File），因为 PowerShell 的
-  // -Command -（stdin）对一些语法结构（如 Add-Type 的 C# 代码）处理不稳定。
-  try {
-    fs.writeFileSync(tmpScript, READ_CREDENTIAL_SCRIPT, 'utf-8');
-  } catch (e) {
-    throw new CliError(ERROR_CODES.INTERNAL_ERROR, `无法写入临时脚本: ${e.message}`, {
-      username,
-      target: credentialTarget
-    });
-  }
+  // 不写临时 .ps1：脚本经 -EncodedCommand（UTF-16LE base64）注入。
+  // 规避防毒软件对临时 .ps1 的拦截，也绕开 ExecutionPolicy（-EncodedCommand
+  // 不像 -File 受策略限制）。旧实现用 -Command -（stdin）时 Add-Type 的 C#
+  // here-string 解析不稳定，-EncodedCommand 把脚本作为已编码字节数组直接注入，
+  // 不经命令行解析器，故稳定。
+  const encodedCmd = Buffer.from(READ_CREDENTIAL_SCRIPT, 'utf16le').toString('base64');
 
   let result;
   try {
     result = spawnSync(
       'powershell.exe',
-      ['-NoProfile', '-NonInteractive', '-File', tmpScript],
+      ['-NoProfile', '-NonInteractive', '-EncodedCommand', encodedCmd],
       {
         windowsHide: true,
         encoding: 'utf-8',
@@ -193,8 +186,6 @@ function readPassword(username, spawnSyncFn) {
       username,
       target: credentialTarget
     });
-  } finally {
-    try { fs.unlinkSync(tmpScript); } catch (_) { /* 清理失败不影响主流程 */ }
   }
 
   const stdout = (result.stdout || '').trim();

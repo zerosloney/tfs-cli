@@ -43,7 +43,7 @@ test('setPassword: cmdkey 失败返回 INTERNAL_ERROR', async () => {
   );
 });
 
-test('getPassword: PowerShell -File 执行并解码 Unicode 密码', () => {
+test('getPassword: PowerShell -EncodedCommand 执行并解码 Unicode 密码', () => {
   const password = '密 码!';
   let call;
   const spawnSync = (command, args, opts) => {
@@ -59,10 +59,13 @@ test('getPassword: PowerShell -File 执行并解码 Unicode 密码', () => {
   assert.equal(call.command, 'powershell.exe');
   assert.equal(call.args[0], '-NoProfile');
   assert.equal(call.args[1], '-NonInteractive');
-  assert.equal(call.args[2], '-File');
-  assert.match(call.args[3], /tfs-cli-cred-.*\.ps1$/);
+  assert.equal(call.args[2], '-EncodedCommand');
+  // -EncodedCommand 是 UTF-16LE base64，解码后应可读
+  const decoded = Buffer.from(call.args[3], 'base64').toString('utf16le');
+  assert.ok(decoded.includes('CredReadW'), '编码脚本应含 CredReadW 调用');
   assert.equal(call.opts.env.TFS_CLI_CRED_TARGET, 'tfs-cli:alice');
   assert.ok(!call.args.join(' ').includes('alice'), 'target 不应进入 PowerShell 命令行');
+  assert.ok(!call.args.some((a) => /\.ps1$/.test(a)), '不应释放临时 .ps1 文件');
 });
 
 test('getPassword: 凭证不存在返回 CREDENTIAL_MISSING', () => {
