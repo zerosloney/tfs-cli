@@ -9,6 +9,7 @@
    - `ok: true` → 可以编辑
    - `ok: false, error.code = "CONFLICT"` → **停止**，报告 `details.owner`
    - `ok: false, error.code = "PATH_NOT_IN_WORKSPACE"` → **新文件**，先 `tfs-cli add <path>` 加入源代码管理，再 `tfs-cli edit <path>`
+   - 本地新增文件（磁盘上新建、不在 TFS 工作区） → **无需签出**，直接编辑
 3. 编辑后用 `tfs-cli diff <path>` 查看变更
 
 ### 常用命令
@@ -29,9 +30,9 @@
 原因：新文件仅纳入源代码管理不够 — 项目文件也需修改以包含新文件引用。项目文件未签出 → 新文件不在项目中 → 编译失败。
 
 流程：
-1. `tfs-cli add <新文件>` — 纳入源代码管理
+1. `tfs-cli add <新文件>` — 纳入源代码管理（新文件自动签出，可直接编辑，**无需再 `tfs-cli edit`**）
 2. 定位所属项目文件（同目录或上级目录）
-3. `tfs-cli edit <项目文件>` — 签出
+3. `tfs-cli edit <项目文件>` — 签出项目文件
 4. 在项目文件中加新文件引用（如 `<Compile Include="新文件.cs" />`）
 
 ### 禁止事项
