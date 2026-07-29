@@ -21,7 +21,12 @@ const { CliError, ERROR_CODES } = require('./errors');
  */
 
 function detect({ spawnSync } = {}) {
+  spawnSync = spawnSync || require("child_process").spawnSync;
   const candidates = [];
+
+  // 0. 通过 vswhere 探测 (VS 2017+)
+  const vswhereInstances = detectFromVswhere(spawnSync);
+  candidates.push(...vswhereInstances);
 
   // 1-3. VS Team Explorer（路径含一个 * 通配 VS 版本下的 Edition 目录）
   const globs = [
@@ -67,6 +72,61 @@ function detect({ spawnSync } = {}) {
  * @param {string} pattern  例如：'C:/Program Files/Microsoft Visual Studio/2022/<...>/.../tf.exe'
  * @returns {string|null}  实际存在的全路径，或 null
  */
+
+/**
+ * 寻找 vswhere.exe 的位置。
+ */
+function locateVswhere(spawnSync) {
+  try {
+    const r = spawnSync("where", ["vswhere.exe"], { windowsHide: true, encoding: "utf-8" });
+    if (r.status === 0 && r.stdout) {
+      const first = r.stdout.split(/\r?\n/)[0].trim();
+      if (first && fs.existsSync(first)) return first;
+    }
+  } catch (e) {
+    // 忽略
+  }
+  const defaultPath = "C:\\Program Files (x86)\\Microsoft Visual Studio\\Installer\\vswhere.exe";
+  if (fs.existsSync(defaultPath)) return defaultPath;
+  return null;
+}
+
+/**
+ * 根据 vswhere.exe 获取所有 VS 安装路径并搜寻 tf.exe。
+ */
+function detectFromVswhere(spawnSync) {
+  const vswherePath = locateVswhere(spawnSync);
+  if (!vswherePath) return [];
+  try {
+    const r = spawnSync(vswherePath, ["-format", "json", "-products", "*"], { windowsHide: true, encoding: "utf-8" });
+    if (r.status === 0 && r.stdout) {
+      const instances = JSON.parse(r.stdout);
+      const list = [];
+      for (const inst of instances) {
+        if (inst.installationPath) {
+          const tfPath = path.join(
+            inst.installationPath,
+            "Common7",
+            "IDE",
+            "CommonExtensions",
+            "Microsoft",
+            "TeamFoundation",
+            "Team Explorer",
+            "tf.exe"
+          );
+          if (fs.existsSync(tfPath)) {
+            list.push(tfPath);
+          }
+        }
+      }
+      return list;
+    }
+  } catch (e) {
+    // 忽略错误，安全返回空数组
+  }
+  return [];
+}
+
 function findFirstUnderStar(pattern) {
   const starIdx = pattern.indexOf('*');
   if (starIdx < 0) {
